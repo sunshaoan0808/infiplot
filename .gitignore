@@ -12,6 +12,7 @@ out
 
 .vercel
 .turbo
+.claude
 
 .DS_Store
 *.log
