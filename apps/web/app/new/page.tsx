@@ -49,7 +49,7 @@ export default function NewPage() {
       <footer className="px-6 md:px-16 pb-8">
         <div className="hairline-full w-full mb-4" />
         <div className="flex items-center justify-between text-[10px] smallcaps text-clay-500">
-          <span>MIT · MMXXVI</span>
+          <span>MMXXVI</span>
           <span className="num">Ⅰ · Ⅳ</span>
         </div>
       </footer>

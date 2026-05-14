@@ -150,7 +150,7 @@ export default function LandingPage() {
       <footer className="px-6 md:px-16 pb-10 mt-auto">
         <div className="hairline-full w-full mb-5" />
         <div className="flex items-center justify-between text-[10px] smallcaps text-clay-500">
-          <span>MIT · MMXXVI</span>
+          <span>MMXXVI</span>
           <span className="num">Ⅰ · Ⅰ</span>
         </div>
       </footer>

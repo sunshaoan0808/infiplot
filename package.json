@@ -2,8 +2,8 @@
   "name": "dada",
   "version": "0.1.0",
   "private": true,
-  "description": "AI-driven visual novel — open source",
-  "license": "MIT",
+  "description": "AI-driven visual novel",
+  "license": "UNLICENSED",
   "packageManager": "pnpm@9.12.0",
   "engines": {
     "node": ">=20"

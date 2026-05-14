@@ -2,8 +2,6 @@
 
 > An AI-driven visual novel where every frame — scenes, dialogue, choices — is rendered by an AI, one frame at a time. You click. It paints. The story unfolds.
 
-Open source, MIT.
-
 ---
 
 ## How it works
@@ -85,9 +83,3 @@ dada/
 ## Cost & limits
 
 Each turn costs roughly **\$0.15–0.25** in API fees with the recommended model trio. A 30-turn session is **\~\$5–8**. There is no rate limiting or auth out of the box — if you make your deployment public, your bill will reflect that. Add limits before sharing widely.
-
----
-
-## License
-
-MIT.
