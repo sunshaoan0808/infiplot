@@ -13,30 +13,66 @@ export type Phase =
 const SHADOW =
   "0 1px 0 rgba(45,24,16,0.05), 0 36px 64px -28px rgba(45,24,16,0.25), 0 8px 18px -6px rgba(45,24,16,0.10)";
 
+const DEFAULT_CHAR_MS = 28;
+const MIN_CHAR_MS = 30;
+// Voice playback speed multiplier. >1 speeds up the (somewhat slow) MiMo voice
+// while preserving pitch. Typewriter pacing is divided by the same factor.
+const SPEECH_RATE = 1.2;
+// If audio metadata never arrives within this window, give up waiting and
+// let the typewriter run at default speed.
+const AUDIO_WAIT_TIMEOUT_MS = 2500;
+
 // ── Typewriter hook ────────────────────────────────────────────────────
 // Returns the progressively-revealed text, a `done` flag, and a `skip()` that
 // instantly completes the current text. Reset is keyed by `resetKey` (the beat
 // id) rather than the text, so a new beat whose line happens to match the
-// previous one still replays from scratch. `done` is derived synchronously
-// (not from a post-paint effect) so a stale "done" frame never paints.
+// previous one still replays from scratch.
+//
+// When `targetDurationMs` is provided we space characters to span that audio
+// duration, keeping text and voice in lockstep. While `waitForAudio` is true
+// and we don't yet know a duration, the typewriter holds (so text doesn't
+// race ahead of an audio that's still loading).
 function useTypewriter(
   text: string,
   resetKey: string,
-  speed = 28,
+  opts: { targetDurationMs?: number; waitForAudio: boolean } = {
+    waitForAudio: false,
+  },
 ): { shown: string; done: boolean; skip: () => void } {
+  const { targetDurationMs, waitForAudio } = opts;
   const [displayed, setDisplayed] = useState("");
   const [prevKey, setPrevKey] = useState(resetKey);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Sticky once the player has skipped this beat: prevents a late-arriving
+  // audio metadata event from re-triggering the effect and replaying the text.
+  const skippedRef = useRef(false);
 
   // Render-phase reset (React "adjust state on prop change" pattern): when the
   // beat changes, drop the old progress before this render commits.
   if (resetKey !== prevKey) {
     setPrevKey(resetKey);
     setDisplayed("");
+    skippedRef.current = false;
   }
 
   useEffect(() => {
     if (!text) return;
+    // `=== undefined` (not `!targetDurationMs`): 0 means "audio failed or
+    // timed out — run at default speed". The original truthy check stalled
+    // the typewriter forever on those fallback paths.
+    if (waitForAudio && targetDurationMs === undefined) return;
+    // If the player skipped, settle on the full text and don't restart even
+    // when audio metadata arrives late and re-triggers this effect.
+    if (skippedRef.current) {
+      setDisplayed(text);
+      return;
+    }
+
+    const speed =
+      targetDurationMs && text.length > 0
+        ? Math.max(MIN_CHAR_MS, targetDurationMs / text.length)
+        : DEFAULT_CHAR_MS;
+
     let i = 0;
     timer.current = setInterval(() => {
       i += 1;
@@ -50,13 +86,14 @@ function useTypewriter(
       if (timer.current) clearInterval(timer.current);
       timer.current = null;
     };
-  }, [resetKey, text, speed]);
+  }, [resetKey, text, targetDurationMs, waitForAudio]);
 
   const skip = useCallback(() => {
     if (timer.current) {
       clearInterval(timer.current);
       timer.current = null;
     }
+    skippedRef.current = true;
     setDisplayed(text);
   }, [text]);
 
@@ -123,6 +160,9 @@ function ChoiceButton({
 // ── Main component ─────────────────────────────────────────────────────
 export function PlayCanvas({
   imageBase64,
+  audioBase64,
+  audioMime,
+  muted,
   phase,
   beat,
   pendingClick,
@@ -132,6 +172,9 @@ export function PlayCanvas({
   fullViewport = false,
 }: {
   imageBase64: string | null;
+  audioBase64: string | null;
+  audioMime: string | null;
+  muted: boolean;
   phase: Phase;
   beat: Beat | null;
   pendingClick: { x: number; y: number } | null;
@@ -141,7 +184,11 @@ export function PlayCanvas({
   fullViewport?: boolean;
 }) {
   const imgRef = useRef<HTMLImageElement>(null);
+  const audioRef = useRef<HTMLAudioElement>(null);
   const [dims, setDims] = useState<{ w: number; h: number } | null>(null);
+  const [audioDurationMs, setAudioDurationMs] = useState<number | undefined>(
+    undefined,
+  );
 
   const isChoiceBeat = beat?.next.type === "choice";
   const choices: BeatChoice[] = isChoiceBeat
@@ -150,7 +197,56 @@ export function PlayCanvas({
 
   const displayBody = beat?.speaker ? beat.line ?? "" : beat?.narration ?? "";
   const { shown: typedBody, done: typingDone, skip: skipTypewriter } =
-    useTypewriter(displayBody, beat?.id ?? "", 30);
+    useTypewriter(displayBody, beat?.id ?? "", {
+      targetDurationMs: audioDurationMs,
+      waitForAudio: Boolean(audioBase64),
+    });
+
+  // ── Audio source change ──────────────────────────────────────────────
+  // Reset duration when audio source changes; if loading takes too long,
+  // unblock the typewriter via timeout so text doesn't stall.
+  useEffect(() => {
+    setAudioDurationMs(undefined);
+    if (!audioBase64) return;
+    const timer = setTimeout(() => {
+      setAudioDurationMs((prev) => prev ?? 0);
+    }, AUDIO_WAIT_TIMEOUT_MS);
+    return () => clearTimeout(timer);
+  }, [audioBase64]);
+
+  // ── Mute toggle ───────────────────────────────────────────────────────
+  useEffect(() => {
+    const el = audioRef.current;
+    if (!el) return;
+    el.muted = muted;
+    el.playbackRate = SPEECH_RATE;
+    if (!muted && audioBase64 && el.paused) {
+      el.play().catch(() => {
+        // autoplay blocked — silent until next interaction
+      });
+    }
+  }, [muted, audioBase64]);
+
+  function handleAudioMetadata() {
+    const el = audioRef.current;
+    if (!el) return;
+    el.playbackRate = SPEECH_RATE;
+    // Effective playback time is shorter once sped up — keep the typewriter in sync.
+    const ms = Number.isFinite(el.duration)
+      ? (el.duration * 1000) / SPEECH_RATE
+      : 0;
+    setAudioDurationMs(ms > 0 ? ms : 0);
+    if (!muted) {
+      el.play().catch(() => {
+        // autoplay blocked
+      });
+    }
+  }
+
+  function handleAudioError() {
+    // Treat as zero duration so the typewriter runs at default speed.
+    setAudioDurationMs(0);
+  }
 
   function handleImageClick(e: React.MouseEvent<HTMLImageElement>) {
     if (phase !== "ready" || !imgRef.current || !beat) return;
@@ -197,6 +293,19 @@ export function PlayCanvas({
     <div
       className={`flex flex-col items-center ${fullViewport ? "w-full h-full justify-center" : "w-full"}`}
     >
+      {/* Hidden audio element — voice playback for the current beat */}
+      {audioBase64 && (
+        <audio
+          key={audioBase64.slice(-48)}
+          ref={audioRef}
+          src={`data:${audioMime ?? "audio/wav"};base64,${audioBase64}`}
+          preload="auto"
+          onLoadedMetadata={handleAudioMetadata}
+          onError={handleAudioError}
+          className="hidden"
+        />
+      )}
+
       {imageBase64 ? (
         <div
           className="relative inline-block"

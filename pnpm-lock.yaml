@@ -69,12 +69,21 @@ importers:
       '@yume/ai-client':
         specifier: workspace:*
         version: link:../ai-client
+      '@yume/tts-client':
+        specifier: workspace:*
+        version: link:../tts-client
       '@yume/types':
         specifier: workspace:*
         version: link:../types
       sharp:
         specifier: ^0.33.5
         version: 0.33.5
+
+  packages/tts-client:
+    dependencies:
+      '@yume/types':
+        specifier: workspace:*
+        version: link:../types
 
   packages/types: {}
 

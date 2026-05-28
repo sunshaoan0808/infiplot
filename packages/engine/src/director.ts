@@ -4,6 +4,8 @@ import type {
   BeatChoice,
   BeatChoiceEffect,
   BeatNext,
+  Character,
+  InsertBeatPartial,
   ProviderConfig,
   Scene,
   Session,
@@ -43,13 +45,20 @@ type RawBeat = {
   narration?: string;
   speaker?: string;
   line?: string;
+  lineDelivery?: string;
   next?: RawNext;
+};
+
+type RawCharacterUpdate = {
+  name?: string;
+  description?: string;
 };
 
 type RawScene = {
   scenePrompt?: string;
   entryBeatId?: string;
   beats?: RawBeat[];
+  characterUpdates?: RawCharacterUpdate[];
 };
 
 function coerceEffect(raw: RawEffect | undefined): BeatChoiceEffect {
@@ -90,13 +99,26 @@ function coerceBeat(raw: RawBeat, idx: number, totalBeats: number): Beat {
   // last/dangling continue into a real scene-change exit so the player can
   // never get stuck self-looping on it.
   const fallback = idx + 1 < totalBeats ? `b${idx + 2}` : "";
+  const line = raw.line?.trim() || undefined;
   return {
     id,
     narration: raw.narration?.trim() || undefined,
     speaker: raw.speaker?.trim() || undefined,
-    line: raw.line?.trim() || undefined,
+    line,
+    // lineDelivery only meaningful when there is a line to deliver.
+    lineDelivery: line ? raw.lineDelivery?.trim() || undefined : undefined,
     next: coerceNext(raw.next, fallback),
   };
+}
+
+function coerceCharacterUpdates(raw: RawCharacterUpdate[] | undefined): Character[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((c) => ({
+      name: c.name?.trim() ?? "",
+      description: c.description?.trim() ?? "",
+    }))
+    .filter((c) => c.name && c.description);
 }
 
 const FALLBACK_SEED = "故事继续推进";
@@ -230,10 +252,15 @@ function newSceneId(): string {
 //  Called both on real scene transitions AND on speculative prefetch.
 // ──────────────────────────────────────────────────────────────────────
 
+export type SceneResult = {
+  scene: Scene;
+  characterUpdates: Character[];
+};
+
 export async function directScene(
   config: ProviderConfig,
   session: Session,
-): Promise<Scene> {
+): Promise<SceneResult> {
   const raw = await chat(
     config,
     [
@@ -264,10 +291,13 @@ export async function directScene(
       : beats[0]!.id;
 
   return {
-    id: newSceneId(),
-    scenePrompt: parsed.scenePrompt?.trim() || "an empty scene",
-    beats,
-    entryBeatId,
+    scene: {
+      id: newSceneId(),
+      scenePrompt: parsed.scenePrompt?.trim() || "an empty scene",
+      beats,
+      entryBeatId,
+    },
+    characterUpdates: coerceCharacterUpdates(parsed.characterUpdates),
   };
 }
 
@@ -280,7 +310,7 @@ export async function directInsertBeat(
   config: ProviderConfig,
   session: Session,
   freeformAction: string,
-): Promise<{ narration?: string; speaker?: string; line?: string }> {
+): Promise<InsertBeatPartial> {
   const raw = await chat(
     config,
     [
@@ -293,15 +323,12 @@ export async function directInsertBeat(
     { temperature: 0.9, responseFormat: "json_object" },
   );
 
-  const parsed = parseJsonLoose<{
-    narration?: string;
-    speaker?: string;
-    line?: string;
-  }>(raw);
+  const parsed = parseJsonLoose<InsertBeatPartial>(raw);
 
   const narration = parsed.narration?.trim() || undefined;
   const speaker = parsed.speaker?.trim() || undefined;
   const line = parsed.line?.trim() || undefined;
+  const lineDelivery = line ? parsed.lineDelivery?.trim() || undefined : undefined;
 
   // If the model returned nothing usable, supply a fallback narration so the
   // frontend doesn't append a silent empty beat that renders no dialogue —
@@ -309,5 +336,5 @@ export async function directInsertBeat(
   if (!narration && !speaker && !line) {
     return { narration: "（你停下脚步，环视片刻。）" };
   }
-  return { narration, speaker, line };
+  return { narration, speaker, line, lineDelivery };
 }

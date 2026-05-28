@@ -9,6 +9,8 @@ export type Beat = {
   narration?: string;
   speaker?: string;
   line?: string;
+  /** Free-form voice-acting direction for the line, sent to TTS only. Never displayed. */
+  lineDelivery?: string;
   next: BeatNext;
 };
 
@@ -55,6 +57,30 @@ export type SceneHistoryEntry = {
 };
 
 // ──────────────────────────────────────────────────────────────────────
+//  Characters & voices (TTS)
+// ──────────────────────────────────────────────────────────────────────
+
+export type CharacterVoice = {
+  provider: "xiaomi";
+  /** Xiaomi MiMo design output stored as reference audio for later clones. */
+  referenceAudioBase64: string;
+  mimeType: string;
+};
+
+export type Character = {
+  name: string;
+  /** Free-form voice design description; must begin with explicit gender. */
+  description: string;
+  voice?: CharacterVoice;
+};
+
+/** A single beat's synthesized audio, attached to the response. */
+export type BeatAudio = {
+  base64: string;
+  mime: string;
+};
+
+// ──────────────────────────────────────────────────────────────────────
 //  Session
 // ──────────────────────────────────────────────────────────────────────
 
@@ -64,6 +90,8 @@ export type Session = {
   worldSetting: string;
   styleGuide: string;
   history: SceneHistoryEntry[];
+  /** Character registry — accumulates across scenes; voices persist for reuse. */
+  characters: Character[];
 };
 
 // ──────────────────────────────────────────────────────────────────────
@@ -87,10 +115,21 @@ export type ProviderConfig = {
   model: string;
 };
 
+export type TtsConfig = {
+  baseUrl: string;
+  apiKey: string;
+  /** Base model name; adapter derives "-voicedesign" / "-voiceclone" suffixes. */
+  speechModel: string;
+};
+
 export type EngineConfig = {
   text: ProviderConfig;
   image: ProviderConfig;
   vision: ProviderConfig;
+  /** Optional — when missing the game runs silently (no TTS). */
+  tts?: TtsConfig;
+  /** When true the renderer returns a placeholder PNG instead of calling the image API. */
+  mockImage?: boolean;
 };
 
 // ──────────────────────────────────────────────────────────────────────
@@ -106,6 +145,10 @@ export type StartResponse = {
   sessionId: string;
   scene: Scene;
   imageBase64: string;
+  /** Post-voice character registry (with provisioned voices). */
+  characters: Character[];
+  /** Per-beat synthesized audio, keyed by beat.id. */
+  beatAudio?: Record<string, BeatAudio>;
 };
 
 // /api/scene — generates the next Scene, given session whose latest
@@ -118,6 +161,8 @@ export type SceneRequest = {
 export type SceneResponse = {
   scene: Scene;
   imageBase64: string;
+  characters: Character[];
+  beatAudio?: Record<string, BeatAudio>;
 };
 
 // /api/vision — interprets a background click on the current image and
@@ -141,10 +186,16 @@ export type InsertBeatRequest = {
   freeformAction: string;
 };
 
+/** Partial beat fields produced by the insert-beat director. */
+export type InsertBeatPartial = {
+  narration?: string;
+  speaker?: string;
+  line?: string;
+  lineDelivery?: string;
+};
+
 export type InsertBeatResponse = {
-  partial: {
-    narration?: string;
-    speaker?: string;
-    line?: string;
-  };
+  partial: InsertBeatPartial;
+  characters: Character[];
+  audio?: BeatAudio;
 };

@@ -4,11 +4,12 @@ import type { Scene, Session } from "@yume/types";
 //  Director — emits one Scene (background + a graph of beats) at a time.
 // ──────────────────────────────────────────────────────────────────────
 
-export const DIRECTOR_SYSTEM = `你是一个交互视觉小说的「场景导演」。每次基于世界观、画风、玩家历史，输出**一个完整的场景**。
+export const DIRECTOR_SYSTEM = `你是一个交互视觉小说的「场景导演」。每次基于世界观、画风、玩家历史、已登记角色，输出**一个完整的场景**，并为每句台词配上细腻的配音导演指令。
 
 一个场景包含：
 - 一张背景图（你给出英文 scenePrompt）
 - 一组对话节拍 beats，玩家会按顺序经历它们
+- 任何**首次登场**的角色，需在 characterUpdates 里登记其专属音色设计
 
 每个 beat 是玩家会看到的一段叙述 / 对话 / 选择。beat 之间通过 next 字段连接：
 - "continue": 玩家点击图片背景 / 按继续，自然推进到下一个 beat
@@ -30,27 +31,42 @@ choice 的 effect 有两种：
 - choice 至少 2 个，至多 4 个，互不重复
 
 文本风格约束：
-- narration / line 用中文，scenePrompt 用英文
+- narration / line 用中文（**纯净可显示文本**，绝不要写 (叹气)(语速快) 这类标注 —— 那是给配音的，会被玩家看见）
+- scenePrompt / lineDelivery / characterUpdates 内的文字按下方专门说明
 - 单个 beat 的 narration 与 line 加起来 ≤80 字
 - 单个 choice label ≤15 字
-- scenePrompt 只描述画面里看到什么，不要描述 UI
+- scenePrompt 用英文，只描述画面里看到什么，不要描述 UI
+
+配音相关字段：
+- 每个有 line 的 beat **必须**给出 lineDelivery —— 自由中文的"配音导演指令"，描述该句台词怎么念（情绪 / 语气 / 语速 / 气息 / 停顿 / 重音 / 音色起伏）。例："鼓起勇气又害羞，声音发颤、偏小，句尾带一丝气声，语速偏慢"。平淡场合写"平静自然、语速适中"即可，但要贴当下情境。
+- characterUpdates 仅当**有新角色首次出现**时列出该新角色的音色设计；已登记的角色不要重复列出。
+- characterUpdates[].description **必须以明确性别开头**（"女性，…" / "男性，…"），随后描述：年龄、音色质感、性格情绪基调、语速节奏、人设腔调、口音方言。例："女性，约17岁少女，音色清亮带点稚嫩甜美，性格开朗，语速偏快，标准普通话"。
+
+角色与台词的硬性规则（影响配音正确性）：
+- 任何 beat 的 speaker 字段一旦填了名字，**该名字必须**：① 在"已登记角色"列表中存在，或 ② 本次输出的 characterUpdates 里登记。绝不允许 speaker 是个未登记的陌生名字。
+- speaker 名字必须与登记名**完全一致**，不要加「（回忆）」「学姐」之类后缀或别名。
 
 必须输出严格 JSON，结构如下：
 {
   "scenePrompt": "english scene description, no UI",
   "entryBeatId": "b1",
+  "characterUpdates": [
+    { "name": "夏海", "description": "女性，约17岁少女，音色清亮带点稚嫩甜美…" }
+  ],
   "beats": [
     {
       "id": "b1",
-      "narration": "可空",
+      "narration": "可空（纯净文本）",
       "speaker": "可空",
-      "line": "可空",
+      "line": "可空（纯净文本）",
+      "lineDelivery": "line 非空时必填：配音导演指令",
       "next": { "type": "continue", "nextBeatId": "b2" }
     },
     {
       "id": "b2",
-      "speaker": "...",
-      "line": "...",
+      "speaker": "夏海",
+      "line": "学长，我有话想对你说。",
+      "lineDelivery": "鼓起勇气，但又有点害羞，语速偏慢，句尾微微上扬",
       "next": {
         "type": "choice",
         "choices": [
@@ -76,6 +92,13 @@ export function buildDirectorUserMessage(session: Session): string {
   const parts: string[] = [];
   parts.push(`世界观：${session.worldSetting}`);
   parts.push(`画风：${session.styleGuide}`);
+
+  if (session.characters.length > 0) {
+    parts.push("\n已登记角色（speaker 必须用这些名字之一，或在本次 characterUpdates 里登记新名）：");
+    for (const c of session.characters) {
+      parts.push(`- ${c.name}：${c.description}`);
+    }
+  }
 
   if (session.history.length === 0) {
     parts.push("\n这是故事的开场。请生成第一个场景，严格以 JSON 格式返回。");
@@ -142,19 +165,22 @@ export function buildDirectorUserMessage(session: Session): string {
 export const INSERT_BEAT_SYSTEM = `你是视觉小说编剧。玩家在当前场景内做了一个**不会换场景的自由动作**（比如看一眼桌上的相框、想了想刚才那句话）。请基于此动作，写出一个**单独的、过渡性的 beat**：可以是旁白、角色台词、或两者结合。
 
 文本风格约束：
-- narration / line 用中文
+- narration / line 用中文，**纯净可显示文本**，不要写 (叹气) 这类配音标注
 - narration 与 line 加起来 ≤80 字
 - 不要打破当前场景的物理状态（玩家仍在原地、对面仍是同一个角色）
 - 不要生成选项或下一步指引 —— 玩家点击会自然回到原 beat
+- 如果有 line，speaker 必须用**已登记角色**里的名字（绝不允许引入新角色）
+- 如果有 line，**必须**给出 lineDelivery（配音导演指令，自由中文，描述这句话怎么念）
 
 必须输出严格 JSON：
 {
   "narration": "...",
   "speaker": "...",
-  "line": "..."
+  "line": "...",
+  "lineDelivery": "..."
 }
 
-字段都可为空字符串。不要输出 JSON 以外的任何文本。`;
+narration/speaker/line/lineDelivery 都可为空字符串。不要输出 JSON 以外的任何文本。`;
 
 export function buildInsertBeatUserMessage(
   session: Session,
@@ -163,9 +189,16 @@ export function buildInsertBeatUserMessage(
   const parts: string[] = [];
   parts.push(`世界观：${session.worldSetting}`);
 
+  if (session.characters.length > 0) {
+    parts.push("\n已登记角色（speaker 只能用这些名字）：");
+    for (const c of session.characters) {
+      parts.push(`- ${c.name}`);
+    }
+  }
+
   const current = session.history.at(-1);
   if (current) {
-    parts.push(`当前场景：${current.scene.scenePrompt}`);
+    parts.push(`\n当前场景：${current.scene.scenePrompt}`);
     const lastBeatId = current.visitedBeatIds.at(-1) ?? current.scene.entryBeatId;
     const lastBeat = current.scene.beats.find((b) => b.id === lastBeatId);
     if (lastBeat) {

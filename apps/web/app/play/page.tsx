@@ -14,6 +14,7 @@ import { PlayCanvas, type Phase } from "@/components/PlayCanvas";
 import { PRESETS } from "@/lib/presets";
 import type {
   Beat,
+  BeatAudio,
   BeatChoice,
   InsertBeatResponse,
   Scene,
@@ -23,6 +24,8 @@ import type {
   StartResponse,
   VisionResponse,
 } from "@yume/types";
+
+const MUTED_STORAGE_KEY = "yume:muted";
 
 // ──────────────────────────────────────────────────────────────────────
 //  Prefetch pool — speculative SceneResponses keyed by choice path.
@@ -133,7 +136,16 @@ function prefetchScenePath(
             nextSceneSeed: sole.effect.nextSceneSeed,
           },
         };
-        prefetchScenePath(pool, baseSession, [...steps, nextStep], depth + 1);
+        // Carry forward the registry that the parent prefetch result already
+        // settled (it may include characters introduced by the intermediate
+        // scene). Without this, the L2+ prefetch starts from the original
+        // base.characters and a later transition through this survivor would
+        // silently drop voices the player has already heard.
+        const carriedBase: Session = {
+          ...baseSession,
+          characters: data.characters,
+        };
+        prefetchScenePath(pool, carriedBase, [...steps, nextStep], depth + 1);
       }
     }
 
@@ -181,6 +193,18 @@ function PlayInner() {
   const [currentScene, setCurrentScene] = useState<Scene | null>(null);
   const [currentBeatId, setCurrentBeatId] = useState<string | null>(null);
   const [imageBase64, setImageBase64] = useState<string | null>(null);
+  const [beatAudioMap, setBeatAudioMap] = useState<Record<string, BeatAudio>>({});
+  // Lazy-initialize from localStorage so PlayCanvas never mounts with the
+  // wrong muted value (an effect-based read would briefly let audio play
+  // before the preference settled in a scenario where audio arrives early).
+  const [muted, setMuted] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      return window.localStorage.getItem(MUTED_STORAGE_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
   const [pendingClick, setPendingClick] = useState<{
     x: number;
     y: number;
@@ -202,6 +226,10 @@ function PlayInner() {
     if (!currentScene || !currentBeatId) return null;
     return currentScene.beats.find((b) => b.id === currentBeatId) ?? null;
   }, [currentScene, currentBeatId]);
+
+  const currentBeatAudio = currentBeat ? beatAudioMap[currentBeat.id] : undefined;
+  const audioBase64 = currentBeatAudio?.base64 ?? null;
+  const audioMime = currentBeatAudio?.mime ?? null;
 
   useEffect(() => {
     sessionRef.current = session;
@@ -230,6 +258,19 @@ function PlayInner() {
       };
     });
   }, [currentBeatId]);
+
+  // ── Mute persistence (read is via the useState lazy initializer above) ─
+  const toggleMuted = useCallback(() => {
+    setMuted((prev) => {
+      const next = !prev;
+      try {
+        window.localStorage.setItem(MUTED_STORAGE_KEY, next ? "1" : "0");
+      } catch {
+        // ignore
+      }
+      return next;
+    });
+  }, []);
 
   // ── Presentation mode toggle ─────────────────────────────────────────
   const togglePresentation = useCallback(async () => {
@@ -327,12 +368,14 @@ function PlayInner() {
               visitedBeatIds: [data.scene.entryBeatId],
             },
           ],
+          characters: data.characters,
         };
         visitedBeatsRef.current = [data.scene.entryBeatId];
         setSession(initial);
         setCurrentScene(data.scene);
         setCurrentBeatId(data.scene.entryBeatId);
         setImageBase64(data.imageBase64);
+        setBeatAudioMap(data.beatAudio ?? {});
         setPhase("ready");
       })
       .catch((e) => setError(String(e)));
@@ -409,12 +452,14 @@ function PlayInner() {
             visitedBeatIds: [result.scene.entryBeatId],
           },
         ],
+        characters: result.characters,
       };
       visitedBeatsRef.current = [result.scene.entryBeatId];
       setSession(newSession);
       setCurrentScene(result.scene);
       setCurrentBeatId(result.scene.entryBeatId);
       setImageBase64(result.imageBase64);
+      setBeatAudioMap(result.beatAudio ?? {});
       setLastExitLabel(exitLabel);
       setPhase("ready");
     } catch (e) {
@@ -514,7 +559,8 @@ function PlayInner() {
           };
           throw new Error(j.error ?? insertRes.statusText);
         }
-        const { partial } = (await insertRes.json()) as InsertBeatResponse;
+        const { partial, characters: insertChars, audio } =
+          (await insertRes.json()) as InsertBeatResponse;
 
         const fromBeatId =
           currentBeatRef.current?.id ?? currentScene.entryBeatId;
@@ -526,6 +572,7 @@ function PlayInner() {
           narration: partial.narration,
           speaker: partial.speaker,
           line: partial.line,
+          lineDelivery: partial.lineDelivery,
           next: { type: "continue", nextBeatId: fromBeatId },
         };
 
@@ -541,11 +588,15 @@ function PlayInner() {
                 history: s.history.map((h, i, arr) =>
                   i === arr.length - 1 ? { ...h, scene: patched } : h,
                 ),
+                characters: insertChars,
               }
             : s,
         );
         setCurrentScene(patched);
         setCurrentBeatId(newBeatId);
+        if (audio) {
+          setBeatAudioMap((m) => ({ ...m, [newBeatId]: audio }));
+        }
         setLastExitLabel(decision.intent.freeformAction);
         setPhase("ready");
         setPendingClick(null);
@@ -627,6 +678,9 @@ function PlayInner() {
       <div className="fixed inset-0 bg-black flex items-center justify-center z-50">
         <PlayCanvas
           imageBase64={imageBase64}
+          audioBase64={audioBase64}
+          audioMime={audioMime}
+          muted={muted}
           phase={phase}
           beat={currentBeat}
           pendingClick={pendingClick}
@@ -666,6 +720,9 @@ function PlayInner() {
       <main className="flex-1 flex flex-col items-center justify-center px-4 md:px-8 py-6 md:py-10">
         <PlayCanvas
           imageBase64={imageBase64}
+          audioBase64={audioBase64}
+          audioMime={audioMime}
+          muted={muted}
           phase={phase}
           beat={currentBeat}
           pendingClick={pendingClick}
@@ -700,7 +757,17 @@ function PlayInner() {
           F · 演 · 示
         </button>
         <div className="text-[9px] smallcaps text-clay-400 num">Ⅰ · Ⅰ</div>
-        <span className="text-[9px] w-[60px]" aria-hidden />
+        <button
+          type="button"
+          onClick={toggleMuted}
+          className="text-[9px] smallcaps text-clay-400 hover:text-clay-700 transition-colors flex items-center gap-2 w-[80px] justify-end"
+          aria-label={muted ? "取消静音" : "静音"}
+        >
+          <i
+            className={`fa-solid ${muted ? "fa-volume-xmark" : "fa-volume-high"} text-[10px]`}
+          />
+          {muted ? "静 · 音" : "有 · 声"}
+        </button>
       </footer>
     </div>
   );

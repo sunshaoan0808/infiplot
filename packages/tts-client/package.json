@@ -1,5 +1,5 @@
 {
-  "name": "@yume/engine",
+  "name": "@yume/tts-client",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -12,9 +12,6 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@yume/ai-client": "workspace:*",
-    "@yume/tts-client": "workspace:*",
-    "@yume/types": "workspace:*",
-    "sharp": "^0.33.5"
+    "@yume/types": "workspace:*"
   }
 }
