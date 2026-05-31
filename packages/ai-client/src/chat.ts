@@ -39,7 +39,7 @@ export async function chat(
     choices: { message: { content: string } }[];
   };
 
-  // 修复问题2和问题5：检查choices是否为空，以及message是否存在
+  // Guard against empty choices array or missing message/content fields
   const content = json.choices?.[0]?.message?.content;
   if (content === undefined || content === null) {
     throw new Error(

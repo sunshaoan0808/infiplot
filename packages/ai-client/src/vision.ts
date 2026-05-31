@@ -53,5 +53,14 @@ export async function interpretClick(
   const json = (await res.json()) as {
     choices: { message: { content: string } }[];
   };
-  return json.choices[0]?.message.content ?? "";
+
+  // Guard against empty choices array or missing message/content fields
+  const content = json.choices?.[0]?.message?.content;
+  if (content === undefined || content === null) {
+    throw new Error(
+      `Vision API returned no content. Response: ${JSON.stringify(json).slice(0, 500)}`
+    );
+  }
+
+  return content;
 }
