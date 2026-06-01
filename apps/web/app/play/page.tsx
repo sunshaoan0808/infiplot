@@ -414,7 +414,16 @@ function PlayInner() {
   // skips synthesis while muted, so a scene entered muted has no audio to play
   // back otherwise. (Clearing the map re-synthesizes already-fetched beats on a
   // mid-scene un-mute, but that's bounded to one scene and a rare toggle.)
+  //
+  // Gate on actual mute *transitions*: on mount this effect would otherwise
+  // fire alongside the scene effect above (both call prefetchSceneAudio),
+  // doubling the initial /api/beat-audio batch — the first set is dispatched
+  // only to be aborted mid-flight, burning TTS quota.
+  const prevMutedRef = useRef(muted);
   useEffect(() => {
+    const prev = prevMutedRef.current;
+    prevMutedRef.current = muted;
+    if (prev === muted) return;
     cancelBeatAudioFetches();
     if (muted) return;
     setBeatAudioMap({});
