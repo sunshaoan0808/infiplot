@@ -238,12 +238,20 @@ function PlayInner() {
   const [currentBeatId, setCurrentBeatId] = useState<string | null>(null);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [beatAudioMap, setBeatAudioMap] = useState<Record<string, BeatAudio>>({});
-  // Lazy-initialize from localStorage so PlayCanvas never mounts with the
-  // wrong muted value (an effect-based read would briefly let audio play
-  // before the preference settled in a scenario where audio arrives early).
+  // Lazy-initialize 优先级：本局选择(homepage 的「语音配音」存到 sessionStorage:infiplot:custom)
+  // > 上次会话的粘性偏好(localStorage:infiplot:muted) > 默认非静音。
+  // 这样首页选了「关闭」开始游戏，进来就是静音；选「开启」就不是静音；进入 play 页后用户自己
+  // 切换 静音/有声 时再用 localStorage 持久化，下一局开新游戏 sessionStorage 选择会再覆盖。
   const [muted, setMuted] = useState<boolean>(() => {
     if (typeof window === "undefined") return false;
     try {
+      const stored = window.sessionStorage.getItem("infiplot:custom");
+      if (stored) {
+        const parsed = JSON.parse(stored) as { audioEnabled?: boolean };
+        if (typeof parsed.audioEnabled === "boolean") {
+          return !parsed.audioEnabled;
+        }
+      }
       return window.localStorage.getItem(MUTED_STORAGE_KEY) === "1";
     } catch {
       return false;
@@ -263,13 +271,11 @@ function PlayInner() {
   // changes so stale in-flight requests can't poison the new scene's map
   // (beat ids like "b1" are scene-local and would collide across scenes).
   const beatAudioAbortRef = useRef<Map<string, AbortController>>(new Map());
-  // User-toggled "语音配音" from the homepage. Defaults to true for back-compat
-  // when older sessionStorage payloads omit the field. Mutated once in
-  // bootstrap and read by fetchBeatAudio to early-return without any /api call.
-  const audioEnabledRef = useRef<boolean>(true);
   // Mirrors `muted` so the closure-stable fetchBeatAudio (deps []) can gate on
   // it. Muting stops TTS *synthesis*, not just playback — TTS is the only sound
   // source, so synthesizing audio the user can't hear just burns quota.
+  // 首页「语音配音 关闭」会把 muted 初值置为 true（见上方 useState 初始化），
+  // 不再单独维护 audioEnabledRef —— 单一来源避免两个 flag 漂移。
   const mutedRef = useRef<boolean>(muted);
 
   // Mirrors for use inside async handlers (closure-stable)
@@ -329,8 +335,8 @@ function PlayInner() {
       sess: Session,
       beat: { id: string; speaker?: string; line?: string; lineDelivery?: string },
     ): Promise<void> => {
-      if (!audioEnabledRef.current) return; // user toggled 语音配音 → 关闭
-      if (mutedRef.current) return; // 静音 → 不合成 TTS（避免无谓的调用与花费）
+      if (mutedRef.current) return; // 静音 → 不合成 TTS（避免无谓的调用与花费）。
+      // 「首页选关闭」也走这条路：bootstrap 时 muted 已被初始化为 true。
       if (!beat.speaker || !beat.line) return;
       const speaker = sess.characters.find((c) => c.name === beat.speaker);
       if (!speaker?.voice) return; // not yet provisioned — server can't synth anyway
@@ -495,8 +501,7 @@ function PlayInner() {
             audioEnabled?: boolean;
           };
           payload = { worldSetting: parsed.worldSetting, styleGuide: parsed.styleGuide };
-          // default true for older payloads that omit the flag
-          audioEnabledRef.current = parsed.audioEnabled !== false;
+          // audioEnabled 已在 useState 初始化时反向投射到 muted；这里无需再额外存。
         } catch {
           payload = null;
         }
@@ -890,10 +895,10 @@ function PlayInner() {
       <header className="px-5 md:px-12 pt-6 md:pt-8 flex items-center justify-between">
         <Link
           href="/"
-          className="text-clay-600 hover:text-clay-900 transition-colors flex items-center gap-2"
+          className="text-clay-600 hover:text-clay-900 transition-colors flex items-center gap-3"
         >
-          <i className="fa-solid fa-arrow-left text-[9px]" />
-          <span className="font-serif text-[15px] leading-none tracking-tight">
+          <i className="fa-solid fa-arrow-left text-[12px]" />
+          <span className="font-serif text-[22px] md:text-[26px] leading-none tracking-tight">
             Infi<em className="italic font-light text-ember-500">Plot</em>
           </span>
         </Link>
@@ -920,6 +925,32 @@ function PlayInner() {
           onBackgroundClick={onBackgroundClick}
           onAdvance={onAdvance}
           onSelectChoice={onSelectChoice}
+          aboveCanvas={
+            <button
+              type="button"
+              onClick={() => void togglePresentation()}
+              className="text-[10px] smallcaps text-clay-500 hover:text-ember-500 transition-colors flex items-center gap-2"
+              aria-label="进入全屏"
+              title="全屏 (F)"
+            >
+              <i className="fa-solid fa-expand text-[10px]" />
+              F · 全 · 屏
+            </button>
+          }
+          aboveCanvasLeft={
+            <button
+              type="button"
+              onClick={toggleMuted}
+              className="text-[10px] smallcaps text-clay-500 hover:text-ember-500 transition-colors flex items-center gap-2"
+              aria-label={muted ? "取消静音" : "静音"}
+              title={muted ? "取消静音" : "静音"}
+            >
+              <i
+                className={`fa-solid ${muted ? "fa-volume-xmark" : "fa-volume-high"} text-[10px]`}
+              />
+              {muted ? "静 · 音" : "有 · 声"}
+            </button>
+          }
         />
 
         <div className="mt-4 max-w-md w-full text-center min-h-[28px] flex items-center justify-center">
@@ -937,28 +968,9 @@ function PlayInner() {
         </div>
       </main>
 
-      <footer className="px-5 md:px-12 pb-6 flex items-center justify-between">
-        <button
-          type="button"
-          onClick={() => void togglePresentation()}
-          className="text-[9px] smallcaps text-clay-400 hover:text-clay-700 transition-colors flex items-center gap-2"
-          aria-label="进入演示模式"
-        >
-          <i className="fa-solid fa-expand text-[10px]" />
-          F · 演 · 示
-        </button>
+      <footer className="px-5 md:px-12 pb-6 flex items-center justify-center">
+        {/* 演示 / 静音入口已搬到画面正上方左右两侧；footer 仅留中间的「Ⅰ · Ⅰ」标记 */}
         <div className="text-[9px] smallcaps text-clay-400 num">Ⅰ · Ⅰ</div>
-        <button
-          type="button"
-          onClick={toggleMuted}
-          className="text-[9px] smallcaps text-clay-400 hover:text-clay-700 transition-colors flex items-center gap-2 w-[80px] justify-end"
-          aria-label={muted ? "取消静音" : "静音"}
-        >
-          <i
-            className={`fa-solid ${muted ? "fa-volume-xmark" : "fa-volume-high"} text-[10px]`}
-          />
-          {muted ? "静 · 音" : "有 · 声"}
-        </button>
       </footer>
     </div>
   );
