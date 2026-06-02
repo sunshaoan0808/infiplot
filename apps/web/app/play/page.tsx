@@ -11,6 +11,7 @@ import {
   useState,
 } from "react";
 import { PlayCanvas, type Phase } from "@/components/PlayCanvas";
+import { annotateClick } from "@/lib/annotateClient";
 import { PRESETS } from "@/lib/presets";
 import type {
   Beat,
@@ -746,10 +747,11 @@ function PlayInner() {
     setPendingClick(click);
 
     try {
+      const annotatedImageBase64 = await annotateClick(imageUrl, click);
       const visionRes = await fetch("/api/vision", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ session, prevImageUrl: imageUrl, click }),
+        body: JSON.stringify({ session, annotatedImageBase64 }),
       });
       if (!visionRes.ok) {
         const j = (await visionRes.json().catch(() => ({}))) as {
