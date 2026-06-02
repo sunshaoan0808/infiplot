@@ -20,8 +20,6 @@ Free to play, no setup required: [infiplot.com](https://infiplot.com)
 
 ## 📸 Screenshots
 
-<sub><em>click any screenshot to view full size</em></sub>
-
 <table>
   <tr>
     <td><a href="docs/screenshots/4.webp"><img src="docs/screenshots/4.webp" width="280" alt="School rooftop scene"></a></td>
