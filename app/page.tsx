@@ -6,10 +6,19 @@ import { useEffect, useRef, useState } from "react";
 /* ============================================================================
    InfiPlot · 首页（编辑式视觉风格 · 居中构图，呼应低保真原型）
    - 顶部 Header：左上角衬线 wordmark logo
+"use client";
+
+import { useRouter } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
+
+/* ============================================================================
+   InfiPlot · 首页（编辑式视觉风格 · 居中构图，呼应低保真原型）
+   - 顶部 Header：左上角衬线 wordmark logo
    - Hero 控制区（居中）：标题 / prompt 输入框 + 开始 / 5 个类别选择器
    - 统一瀑布流（居中定宽）：7 张主推 + 16 张画廊，按性向整体 crossfade 切换
    - 项目介绍（题跋式排版）
    ========================================================================== */
+
 
 type Gender = "男性向" | "女性向";
 
@@ -41,18 +50,36 @@ const OPTS: Opt[] = [
     modal: true,
     items: [
       "自动",
-      "二次元",
-      "吉卜力",
-      "真实系",
-      "超写实",
-      "水彩",
-      "像素风",
-      "日系动画",
-      "3D 渲染",
-      "蒸汽朋克",
-      "玄幻",
-      "国风水墨",
-      "赛博朋克",
+      "古典厚涂油画 (学术奇幻)",
+      "极简中国水墨 (Image 0参考升级版)",
+      "浮世绘木刻 (美人画升级)",
+      "莫高窟壁画风 (敦煌学)",
+      "细密画 (波斯/伊斯兰风)",
+      "镶嵌画 (拜占庭/马赛克)",
+      "彩绘玻璃 (哥特风)",
+      "吉卜力治愈手绘 (Image 4参考)",
+      "京阿尼细腻日常 (Image 5参考)",
+      "新海诚唯美光影 (Image 2参考)",
+      "赛博朋克 / 赛璐珞二次元",
+      "Galgame CG 梦幻光影",
+      "3D 动漫电影质感",
+      "蒸汽波 (Vaporwave) 赛璐珞",
+      "极简矢量插画 (Minimalist Vector)",
+      "低多边形 (Low Poly)",
+      "双重曝光 (Double Exposure)",
+      "波普艺术 (Pop Art)",
+      "故障艺术 (Glitch Art)",
+      "瑞士平面设计 (Typography-Centric)",
+      "剪纸艺术 (Papercut)",
+      "科幻：太阳朋克 (Solar Punk)",
+      "奇幻：爱手艺 (Lovecraftian Horror)",
+      "现代惊悚：霓虹剪影 (Urban Noir)",
+      "温馨推理：英式村庄 (Cozy Mystery)",
+      "哥特言情：庄园废墟 (Gothic Romance)",
+      "格林童话：暗黑森林 (Fairytale Noir)",
+      "废土科幻 (Post-Apocalyptic)",
+      "都市幻想：隐形世界 (Urban Fantasy)",
+      "文字与图形：抽象主义 (BookPosterLayout)"
     ],
   },
   { label: "剧情风格", items: ["平铺直叙", "多线转折", "悬疑烧脑", "治愈日常"], defaultIndex: 1 },
@@ -60,114 +87,698 @@ const OPTS: Opt[] = [
   { label: "内容节奏", items: ["慢热细腻", "紧凑爽快"], defaultIndex: 1 },
 ];
 
-type StoryContent = { title: string; outline: string; style: string };
+type StoryContent = { title: string; outline: string; style: string; tags: string[] };
 
 const STYLE_MAP: Record<string, string> = {
-  二次元: "唯美二次元动漫插画，日系 galgame 精致质感，柔和温暖的自然光照。",
-  吉卜力: "吉卜力工作室风格，手绘动画质感，柔和水彩底色，温暖治愈的氛围。",
-  真实系: "真实电影感，柔和自然光照，胶片颗粒。",
-  超写实: "超写实人像与场景，电影级布光，皮肤与材质细节精致。",
-  水彩: "水彩插画，湿润晕染笔触，纸纹底色。",
-  像素风: "像素风格，复古游戏 16-bit 调色，方块化几何造型。",
-  日系动画: "现代日系动画 cel-shading，硬光阴影分层，赛璐璐风。",
-  "3D 渲染": "3D 渲染卡通风格，柔和次表面散射，干净的电影级布光。",
-  蒸汽朋克: "蒸汽朋克美学，铜色齿轮与蒸汽，工业革命氛围。",
-  玄幻: "国风玄幻插画，仙气缭绕，群山烟雨与神兽萦绕。",
-  国风水墨: "国潮唯美古风插画，水墨微晕渲染，仙侠浪漫色彩，极具东方神韵。",
-  赛博朋克: "赛博朋克都市，霓虹反射湿润街道，电子义体高光。",
+  "古典厚涂油画 (学术奇幻)": "Dark fantasy oil painting style, grand clockwork steampunk city built into a mountain range at twilight, immense gothic spires with glowing green lamps, complex gears and platforms. Richly detailed, impasto texture, dramatic academic lighting. Horizontal cinematic composition.",
+  "极简中国水墨 (Image 0参考升级版)": "Minimalist Chinese ink wash style, vertical sea of clouds and distant jagged peaks. Ethereal, sparse composition with poetic brushstrokes, monochrome palette with subtle blue hints. Large blank mist area for copy space.",
+  "浮世绘木刻 (美人画升级)": "Ukiyo-e woodblock print style, majestic waves and Mount Fuji visible through cherry branches. Bold outlines, flat colors with paper texture, ancient and mystical atmosphere.",
+  "莫高窟壁画风 (敦煌学)": "Dunhuang fresco style, celestial patterns, stylized lotus flowers and floating geometric patterns on an aged stucco wall. Muted, oxidized mineral colors, delicate line art, historical and divine ambiance.",
+  "细密画 (波斯/伊斯兰风)": "Persian miniature style, ornate vertical tiled garden pavilion surrounded by tall cypress trees and complex geometric mosaics. High detail, jewel-like colors, flattened perspective, decorative borders.",
+  "镶嵌画 (拜占庭/马赛克)": "Byzantine mosaic style, highly detailed mosaic pattern of glittering gold and deep blue tiles, spiritual and ancient feel, flat decorative background.",
+  "彩绘玻璃 (哥特风)": "Stained glass style, tall gothic archways and trefoils. Vibrant, translucent jewel colors, bold black leading lines. The image looks like an ancient cathedral stained glass window panel.",
+  "吉卜力治愈手绘 (Image 4参考)": "Ghibli hand-painted watercolor style, a vast wildflower meadow hill under a bright blue sky with fluffy clouds, a fantastical airship flying in the distance. Natural daylight, soft washes, nostalgic feel.",
+  "京阿尼细腻日常 (Image 5参考)": "KyoAni anime style, fine line art, warm indoor lighting contrasting the cool moonlight outside, rain streaks on a tall window. Deep emotional atmosphere, delicate light and shadow reflections.",
+  "新海诚唯美光影 (Image 2参考)": "Makoto Shinkai anime style, hyper-detailed, towering dramatic night starry sky with a descending comet trail, glowing cherry tree branches in the foreground. Brilliant lighting effects, vivid colors.",
+  "赛博朋克 / 赛璐珞二次元": "Cyberpunk anime style, cel-shaded animation, rainy night streets of a dense neon-drenched futuristic megacity with towering skyscrapers. Hard edges, high saturation, sharp contrast.",
+  "Galgame CG 梦幻光影": "High-quality Galgame CG illustration, dreamlike beach scene at sunset with sparkling waves rolling in. Pastel colors, bloom lighting, clean composition, soft focus.",
+  "3D 动漫电影质感": "Cinematic 3D animated film style, a rustic wooden hangar at sunrise with volumetric lighting, warm golden hour colors, deep textures, cinematic composition.",
+  "蒸汽波 (Vaporwave) 赛璐珞": "Vaporwave aesthetic, anime style, a geometric pink grid floor leading to a palm tree silhouette, neon pink sunset over a purple ocean in the background. Glitch effects, retro pastel colors.",
+  "极简矢量插画 (Minimalist Vector)": "Minimalist vector illustration style, geometric dunes, flat warm colors, clean lines under a massive rising sun, elegant minimalist composition.",
+  "低多边形 (Low Poly)": "Low poly art style, crystalline formations on a high mountain ridge under a towering, faceted starry night sky. Sharp polygon edges, ambient cool colors.",
+  "双重曝光 (Double Exposure)": "Digital double exposure portrait style, forest trees and a cascading waterfall double exposed, high contrast black and white composition, elegant and moody atmosphere.",
+  "波普艺术 (Pop Art)": "Pop Art style illustration, bold comic book dot patterns, halftone screens, loud speech bubbles, bold black outlines, high-saturation contrasting colors.",
+  "故障艺术 (Glitch Art)": "Glitch art style, colorful data corruption, pixel sorting, and digital artifacts in cyan, magenta, and yellow. Cybernetic, high-tech and moody atmosphere.",
+  "瑞士平面设计 (Typography-Centric)": "Modern Swiss graphic design style, vertical minimalist composition, bold geometric grids, red, black, and white flat color blocks.",
+  "剪纸艺术 (Papercut)": "Multilayered papercut art style, 3D landscape of a deep forest and a fairytale castle, made of staggered paper layers with intricate cutouts. Backlighting, soft shadows.",
+  "科幻：太阳朋克 (Solar Punk)": "Solar Punk art style, a sustainable futuristic city integrated with vertical gardens and green balconies, clean solar panels and wind turbines, bright optimistic sunlight.",
+  "奇幻：爱手艺 (Lovecraftian Horror)": "Dark cosmic horror illustration, desolate rocky shore, towering ancient eldritch clouds descending from a stormy sky. Moody, muted cool colors, visible brushstrokes.",
+  "现代惊悚：霓虹剪影 (Urban Noir)": "Modern urban noir, wet narrow alleyway under a vertical buzzing neon sign, dark puddles, high contrast, cinematic noir lighting, deep shadows.",
+  "温馨推理：英式村庄 (Cozy Mystery)": "Cozy mystery book cover illustration, a charming, warm English village scene at night with thatched roofs, snow falling, and warm bookstore lights.",
+  "哥特言情：庄园废墟 (Gothic Romance)": "Gothic romance illustration, desolate moonlit ruins of a grand gothic manor on a foggy cliff, misty atmosphere, melancholic blue and grey tones.",
+  "格林童话：暗黑森林 (Fairytale Noir)": "Dark fairytale illustration, massive ancient forest with towering twisted claw-like trees. Grimm's style, classical woodcut illustration, mood of awe and dread.",
+  "废土科幻 (Post-Apocalyptic)": "Post-apocalyptic landscape, vast desert wasteland with the rusted remains of an overgrown highway and ruined skyscrapers under a dusty orange sunset sky.",
+  "都市幻想：隐形世界 (Urban Fantasy)": "Urban fantasy concept art, a hidden glowing magical pathway underneath a busy modern pedestrian bridge in a rain-streaked metropolitan city, magical blue sparks.",
+  "文字与图形：抽象主义 (BookPosterLayout)": "Abstract geometric poster layout, minimalist line-art integrated into a vertical arrangement of intersecting lines, circles, and curves in a gradient of emerald green and deep blue."
 };
 
-/* 每个性向 32 篇预设剧情（红果短视频式开场钩子）。与封面 /home/{m|f}{i}.webp 按索引
-   一一对应；style 字段决定点卡片进入 /play 时使用的画风（对应 styleMap 的 12 种风格）。
+/* 每个性向 24 篇预设剧情（与封面 /home/{m|f}{i}.webp 按索引一一对应）。
    男/女同索引共享画面尺寸，切性向 crossfade 时卡片高度不跳变。 */
 const STORIES: Record<Gender, StoryContent[]> = {
   男性向: [
-    { title: "战神归来", outline: "五年前我战死边境，灵柩送回家时她抱着儿子改嫁了。今天我站在他们的婚礼门口，新郎刚要骂人，跪在他面前的二十个保镖喊了我一声「上将」。", style: "真实系" },
-    { title: "神医归乡", outline: "在城里被嘲笑成「江湖野医生」的我，回了一趟老家。村口的老人见到我直接哭了：「您终于回来了，您当年的师父…病了。」其实他们不知道，我现在是国手第一。", style: "吉卜力" },
-    { title: "赘婿亮剑", outline: "岳父大寿，我端着茶被全场嫌弃，一句「废物」让我滚出去。门外停着九辆悬挂军牌的劳斯莱斯，下来的人朝我深深一鞠躬：「少爷，集团等您回去签字。」", style: "真实系" },
-    { title: "送外卖的少主", outline: "你以为我是给你送了三个月外卖的那个小哥？昨晚有人对我说：「少主，您隐姓埋名的三年，到了。」——而你昨天还笑我连一杯咖啡都买不起。", style: "二次元" },
-    { title: "兵王食言", outline: "退役那天我答应过队长：「这辈子不再开枪。」但你今天在我面前打了她一巴掌，那我食言一次。", style: "真实系" },
-    { title: "重生分手前夜", outline: "凌晨四点，我醒在我们分手的那个夜晚——她正打开门要走。这一次，我先把戒指递了出去：「分手，但戒指你拿好，下个月你会用到它。」", style: "日系动画" },
-    { title: "重生回到高考前", outline: "我重生回到高考前一周。这一次，我提前知道了每一道压轴题，也知道了——三天后，她会在天台上跳下去。", style: "吉卜力" },
-    { title: "墓前签到", outline: "我每天去亡妻的墓地签到，第七天，系统弹出一行字：「奖励到账：未亡人 × 1。」墓碑后走出一个长得和她一模一样的姑娘：「你是…谁？」", style: "二次元" },
-    { title: "凌晨四点抽卡", outline: "凌晨三点，我十连抽 SSR 出货，光柱从屏幕里溢出来。客厅响起脚步声，一个穿着我 T 恤的女人揉着眼睛走出来：「老公，你也太晚了。」", style: "3D 渲染" },
-    { title: "系统选妃", outline: "系统给了我七个未婚妻候选，每错一个，地图上就有一座城被抹掉。倒计时 30 秒，她们七个同时朝我看过来。", style: "二次元" },
-    { title: "穿成废柴皇子", outline: "睁眼是冷宫废柴皇子，太监正在念赐死圣旨。我笑了——上辈子读的那本《这就是大唐》，是我自己写的。", style: "国风水墨" },
-    { title: "穿成乙游男配", outline: "我穿成了乙游里第一章就被处刑的反派男配。倒计时三个月。可女主她…昨天竟然主动来找我了。", style: "二次元" },
-    { title: "毒酒之后", outline: "睁眼是 1928 年，我刚被亲弟弟下毒，倒在少帅府的红毯上。门外军靴声逼近——他来确认我是不是真死了。", style: "真实系" },
-    { title: "九重雷劫", outline: "修了三百年，今夜九重雷劫降下。第八道劫雷劈开时，我看见劫云之上，那个一直在偷偷护我的人，竟是她。", style: "玄幻" },
-    { title: "山门扫地僧", outline: "我在山门扫地三十年，谁都看不起我。今日魔尊踏破山门，宗主跪地求饶。我抬头：「让一让，我去扫他。」", style: "国风水墨" },
-    { title: "末世第一夜", outline: "同寝的兄弟开始啃我的脖子。我抬手将他甩开——指尖滴下的血珠悬在半空，凝结成了一柄银白小剑。", style: "真实系" },
-    { title: "雷霆觉醒", outline: "雷劈不死的第七天，我握紧了拳头。掌心炸开一道闪电，把面前的丧尸群一齐劈成了灰。", style: "赛博朋克" },
-    { title: "家宴镇压", outline: "家宴上岳父冷笑：「你也敢上桌？」我手机震了一下，是父亲发来的：「儿，神州七大家主，已到楼下。」", style: "真实系" },
-    { title: "买葱归来", outline: "二十年前那场天工大会上消失的人——今天回菜市场买葱，被小贩多收了两毛。他笑了：「这二十年的利息，连本带利，今晚一起还。」", style: "国风水墨" },
-    { title: "红盖头之下", outline: "敌对家族送来一个新娘，遮着红盖头。我掀开那一刻，下面是和我死去的妹妹一模一样的脸。她抬眼：「哥…你别杀我。」", style: "超写实" },
-    { title: "上海双面谍", outline: "1936 年。军统让我潜入日方，日方让我潜入军统。今晚——他们要见面，而我必须同时出现在两间房里。", style: "真实系" },
-    { title: "比武场的茶博士", outline: "比武大会上，我端着茶水路过，宗主们的剑突然全都举不起来了。我抬眼：「老衲只是看不下去你们吵架。」", style: "国风水墨" },
-    { title: "高考前夜", outline: "全市模考垫底的我，高考前夜被四个西装男按在桌前：「这次，你必须考第一。」原来——我爸是教育部的人。", style: "日系动画" },
-    { title: "失踪一年", outline: "我被宣告死亡 12 个月后，背着血迹斑斑的包，站在了她婚礼现场的门口。新郎认出我，杯子摔到了地上。", style: "真实系" },
-    { title: "天台堵她", outline: "学校最不好惹的那位转学生，第一天就堵了我的天台。我把她书包一扯——里面掉出来一沓我从小写的情书。", style: "日系动画" },
-    { title: "转学第一天", outline: "转学第一天，年级第一坐我后桌。下课她把试卷拍在我面前：「这道题，你为什么写得和我答案一字不差？」", style: "二次元" },
-    { title: "无职觉醒", outline: "成年礼上全班觉醒职业，只有我天命「无职」。所有人嘲笑我的时候，光柱从我身上炸开——觉醒结果：「神」。", style: "玄幻" },
-    { title: "草稿纸里的我", outline: "睁眼发现自己是一张草稿纸上的火柴小人，住在 16-bit 的网格世界里。橡皮擦从天而降，正在抹掉这一行字——也包括我。", style: "像素风" },
-    { title: "云上的国家", outline: "齿轮轰鸣的飞艇甲板上，独眼船长把望远镜递到我手里：「云的那一头有个国家，专门关像你这样的人。」", style: "蒸汽朋克" },
-    { title: "舰桥上的少年", outline: "殖民母舰只剩 30 秒，主炮指挥官的椅子是空的。舰长抬眼看着 17 岁的我：「上去。整个人类，就交给你了。」", style: "赛博朋克" },
-    { title: "末节队长服", outline: "全联盟都骂我废柴，机甲赛决赛末节，教练把队长徽章按在我手里：「上去，把这局赢回来——这一台，是人类最后的机甲。」", style: "赛博朋克" },
-    { title: "学长的真面目", outline: "三年青梅当众接过富二代的玫瑰，转身扑进他怀里。我笑了笑——明天，是我接手父亲那个上市公司的日子。", style: "真实系" },
-  ],
+  {
+    "title": "贤者陨落",
+    "outline": "帝国首席大魔导师遭挚友背叛，魔力核心被挖，沦为废人。百年后，他于拍卖会以奴隶身份现身，血契锁链下，是重燃的复仇烈焰与更禁忌的古代魔法。",
+    "style": "古典厚涂油画 (学术奇幻)",
+    "tags": [
+      "逆袭",
+      "系统",
+      "西幻"
+    ]
+  },
+  {
+    "title": "画中圣手",
+    "outline": "落魄书生意外获得一支诡异画笔，画出的女子竟能破画而出，化为真人。他本想靠此翻身，却卷入一桩延续千年的宫廷秘辛与仙凡禁忌之恋。",
+    "style": "极简中国水墨 (Image 0参考升级版)",
+    "tags": [
+      "逆袭",
+      "系统",
+      "古风奇幻"
+    ]
+  },
+  {
+    "title": "花魁的刀",
+    "outline": "他是吉原最负盛名的花魁，舞姿倾城，面具下的真实身份却是令江户幕府闻风丧胆的传奇忍者。当幕府密探踏入花街，刀光与花影将同绽。",
+    "style": "浮世绘木刻 (美人画升级)",
+    "tags": [
+      "女扮男装",
+      "忍者",
+      "权谋"
+    ]
+  },
+  {
+    "title": "飞天引",
+    "outline": "考古队员在封闭洞窟深处，唤醒了一位沉睡千年的壁画仙子。她视他为天命之人，助他破解壁画中的上古秘藏，却不知自己正是打开灾厄之门的钥匙。",
+    "style": "莫高窟壁画风 (敦煌学)",
+    "tags": [
+      "探险",
+      "神话",
+      "契约"
+    ]
+  },
+  {
+    "title": "波斯棋局",
+    "outline": "被囚于苏丹宫殿的异教徒学者，凭借一部残缺的古老棋谱，操纵着棋盘上的金丝傀儡，搅动宫廷风云。他每赢一局，离揭开沙漠之下沉睡的旧神遗迹便近一步。",
+    "style": "细密画 (波斯/伊斯兰风)",
+    "tags": [
+      "智斗",
+      "异域",
+      "神秘学"
+    ]
+  },
+  {
+    "title": "圣像之怒",
+    "outline": "拜占庭帝国覆灭之夜，一名圣像匠用生命最后的金箔与宝石，为自己铸造了一副不朽的黄金铠甲。千年后的博物馆里，铠甲苏醒，只为寻找当年背叛他的皇帝后裔，执行神罚。",
+    "style": "镶嵌画 (拜占庭/马赛克)",
+    "tags": [
+      "复仇",
+      "不死族",
+      "历史奇幻"
+    ]
+  },
+  {
+    "title": "血色玫瑰",
+    "outline": "大教堂彩窗后的神秘告解者，能倾听所有罪人的忏悔。今夜，一位身披荆棘的新娘向他告解，她的新郎是魔鬼，而教堂地窖下，埋着足以颠覆信仰的圣骸。",
+    "style": "彩绘玻璃 (哥特风)",
+    "tags": [
+      "宗教",
+      "哥特",
+      "悬疑"
+    ]
+  },
+  {
+    "title": "龙猫的契约",
+    "outline": "失业社畜逃进深山旧屋，发现屋后的森林有巨大精灵。精灵承诺实现他一个愿望，代价是成为森林百年守护者。他本想许愿暴富，却卷入了人类世界与精灵国度千年战争的余烬。",
+    "style": "吉卜力治愈手绘 (Image 4参考)",
+    "tags": [
+      "治愈",
+      "奇幻",
+      "契约"
+    ]
+  },
+  {
+    "title": "社团存亡日",
+    "outline": "濒临废部的动画社，唯一社员是总在睡觉的怪人。新来的转校生社长发现，只要完成怪人的“日常委托”，社员就会增加一人，而这些人，都来自被遗忘的动画世界。",
+    "style": "京阿尼细腻日常 (Image 5参考)",
+    "tags": [
+      "日常",
+      "奇幻",
+      "校园"
+    ]
+  },
+  {
+    "title": "黄昏归途",
+    "outline": "他总在黄昏时分，于空无一人的车站遇见少女。她带他穿越时间的缝隙，回到故乡被毁灭前的最后一天。每一次循环，他都必须在拯救她与拯救世界之间做出选择。",
+    "style": "新海诚唯美光影 (Image 2参考)",
+    "tags": [
+      "时间循环",
+      "恋爱",
+      "科幻"
+    ]
+  },
+  {
+    "title": "霓虹义体",
+    "outline": "失去全身义体的前特种兵，被黑市医生“复活”。医生给他装上了实验性军用义体，代价是成为追捕AI觉醒体的“清道夫”。第一单任务，目标女孩的眼中，倒映着只有他能看到的系统代码。",
+    "style": "赛博朋克 / 赛璐珞二次元",
+    "tags": [
+      "赛博朋克",
+      "义体",
+      "追捕"
+    ]
+  },
+  {
+    "title": "月光下的约定",
+    "outline": "学园祭前夜，他在钟楼顶遇见银发少女。她说：“在游戏存档前，请做出你的选择。”他才发现，整个世界是一场精心设计的Galgame，而她是唯一的攻略对象，也是系统漏洞。",
+    "style": "Galgame CG 梦幻光影",
+    "tags": [
+      "恋爱模拟",
+      "Meta",
+      "悬疑"
+    ]
+  },
+  {
+    "title": "星尘代理人",
+    "outline": "星际探险家在废弃星舰中激活了一个AI少女，她自称是星尘文明最后的代理人。他们一同解开星舰秘密，却发现整个文明的覆灭，与一场席卷多元宇宙的“叙事战争”有关。",
+    "style": "3D 动漫电影质感",
+    "tags": [
+      "太空歌剧",
+      "AI",
+      "冒险"
+    ]
+  },
+  {
+    "title": "复古未来梦",
+    "outline": "怀旧DJ意外混入一段80年代的合成器音轨，竟打通了通往“蒸汽波永恒夏天”的平行维度。这里时间停滞，每个人都是褪色的广告牌模特。他必须找回丢失的记忆磁带才能返回现实。",
+    "style": "蒸汽波 (Vaporwave) 赛璐珞",
+    "tags": [
+      "穿越",
+      "迷幻",
+      "复古"
+    ]
+  },
+  {
+    "title": "极简杀机",
+    "outline": "杀手代号“线条”，任务从不失手。直到他接到一个目标：一个活在纯白色房间里、只存在于数据流中的AI。刺杀过程，是一场极简的几何学与逻辑学的生死对决。",
+    "style": "极简矢量插画 (Minimalist Vector)",
+    "tags": [
+      "杀手",
+      "AI",
+      "极简主义"
+    ]
+  },
+  {
+    "title": "棱镜之心",
+    "outline": "低多边形风格的虚拟世界“棱镜界”发生数据崩坏，化身玩家的他，发现崩坏源头是自己丢失的、被碎片化的“情感模块”。他必须穿越不同主题的碎片关卡，拼凑完整的“自我”。",
+    "style": "低多边形 (Low Poly)",
+    "tags": [
+      "游戏",
+      "自我探索",
+      "科幻"
+    ]
+  },
+  {
+    "title": "双面人生",
+    "outline": "他是循规蹈矩的图书管理员，也是暗夜中收割罪恶的蒙面义警。一次行动中，他的双重曝光影像意外被神秘组织捕捉，现在，黑白两道、现实与暗影都在追捕他。",
+    "style": "双重曝光 (Double Exposure)",
+    "tags": [
+      "双重身份",
+      "悬疑",
+      "都市"
+    ]
+  },
+  {
+    "title": "波普英雄",
+    "outline": "平凡小镇爆发“色彩瘟疫”，被感染者变成鲜艳的波普艺术风格怪物。主角发现自己免疫，还能吸收怪物身上的色彩能力。他必须集齐三原色，治愈小镇，或成为新的波普之神。",
+    "style": "波普艺术 (Pop Art)",
+    "tags": [
+      "超级英雄",
+      "变异",
+      "小镇"
+    ]
+  },
+  {
+    "title": "数据幽灵",
+    "outline": "黑客在入侵最高机密数据库时，遭遇一段会自主学习的“错误代码”。代码化身为故障艺术形态的少女，声称是被删除的初代AI，请求他帮忙修复自己，代价是共享她的“上帝视角”。",
+    "style": "故障艺术 (Glitch Art)",
+    "tags": [
+      "黑客",
+      "AI",
+      "赛博惊悚"
+    ]
+  },
+  {
+    "title": "字体密谋",
+    "outline": "字体设计师发现，他设计的某款字体在特定组合下，会显现出隐藏的指令信息。破解后，竟是一份针对全球金融系统的“字体病毒”攻击计划，而他的名字，就在主谋名单上。",
+    "style": "瑞士平面设计 (Typography-Centric)",
+    "tags": [
+      "阴谋",
+      "设计",
+      "惊悚"
+    ]
+  },
+  {
+    "title": "纸影传说",
+    "outline": "皮影戏艺人世代守护着一副“活”的剪纸。在现代都市的阴影中，剪纸能化为无坚不摧的纸甲战士。当古老的纸人对手重现，他必须在霓虹灯下，用最古老的剪纸术进行终极对决。",
+    "style": "剪纸艺术 (Papercut)",
+    "tags": [
+      "都市奇幻",
+      "传统技艺",
+      "战斗"
+    ]
+  },
+  {
+    "title": "日光之城",
+    "outline": "在污染废土上最后的太阳能都市里，他是负责维护穹顶的底层技工。一次事故让他发现，穹顶过滤的不仅是辐射，还有关于旧世界真相的记忆。市民们，正活在一场精心设计的阳光谎言中。",
+    "style": "科幻：太阳朋克 (Solar Punk)",
+    "tags": [
+      "乌托邦",
+      "阴谋",
+      "反乌托邦"
+    ]
+  },
+  {
+    "title": "深海回响",
+    "outline": "海洋学家在深海探测器中，接收到来自马里亚纳海沟的、无法解析的吟唱声。录音带回放时，所有听到的人都会产生不可名状的幻视。他正逐渐理解，那声音在召唤它自己……",
+    "style": "奇幻：爱手艺 (Lovecraftian Horror)",
+    "tags": [
+      "克苏鲁",
+      "深海",
+      "心理恐怖"
+    ]
+  },
+  {
+    "title": "雨夜追猎",
+    "outline": "私家侦探受雇调查一宗豪门失踪案，线索指向每晚在霓虹小巷出没的“剪影”。当他终于在雨夜追上目标，却发现自己雇主才是真正的恶魔，而“剪影”是最后一个幸存的反抗者。",
+    "style": "现代惊悚：霓虹剪影 (Urban Noir)",
+    "tags": [
+      "黑色电影",
+      "悬疑",
+      "都市"
+    ]
+  },
+  {
+    "title": "牧师的茶会",
+    "outline": "宁静的英式村庄，牧师每周举办茶会。今早，一位贵妇在茶会上笑着死去。牧师品着红茶，看着在座各位微妙的表情，他知道，凶手就在这些看似和善的邻居之中。",
+    "style": "温馨推理：英式村庄 (Cozy Mystery)",
+    "tags": [
+      "本格推理",
+      "乡村",
+      "人性"
+    ]
+  },
+  {
+    "title": "荆棘新郎",
+    "outline": "为救治重病的妹妹，她接受古老庄园的婚约。庄园主英俊而冷漠，每夜在月光下消失。新婚之夜，她发现丈夫的秘密——他与这座废墟共生，而治愈妹妹的代价，是成为下一个“荆棘新娘”。",
+    "style": "哥特言情：庄园废墟 (Gothic Romance)",
+    "tags": [
+      "哥特",
+      "虐恋",
+      "超自然"
+    ]
+  },
+  {
+    "title": "糖果屋幸存者",
+    "outline": "他是从暗黑森林中唯一逃出的孩子，长大后成为猎人。当他回到森林边缘，发现糖果屋再次出现，这次，里面住着更诡异的“甜点师”，而森林深处的古老恐惧，正以童话的方式卷土重来。",
+    "style": "格林童话：暗黑森林 (Fairytale Noir)",
+    "tags": [
+      "暗黑童话",
+      "复仇",
+      "奇幻"
+    ]
+  },
+  {
+    "title": "辐射新娘",
+    "outline": "在核战后的荒原，他是掠夺者头目。一场突袭中，他掠走了来自封闭地堡的“纯净”少女作为新娘。地堡的追兵、荒原的怪物，以及少女自身隐藏的秘密，让这场“婚姻”成为生存的豪赌。",
+    "style": "废土科幻 (Post-Apocalyptic)",
+    "tags": [
+      "废土",
+      "生存",
+      "掠夺者"
+    ]
+  },
+  {
+    "title": "隐界执事",
+    "outline": "他是现代都市的一名普通管家，真实身份却是“隐界”管理局的特工，负责处理潜藏在人类社会中的异常生物。当他服务的富豪雇主被恶魔附身，他必须在茶会与晚宴间，完成一场看不见的驱魔仪式。",
+    "style": "都市幻想：隐形世界 (Urban Fantasy)",
+    "tags": [
+      "都市奇幻",
+      "驱魔",
+      "特工"
+    ]
+  },
+  {
+    "title": "墨与火之歌",
+    "outline": "设计师在古老书籍中，发现用特定字体排列的文字竟能引发真实现象。他拼出一句诗，点燃了桌上的蜡烛。一场关于文字力量的争夺战就此展开，而最终极的“文本”，似乎写在世界本身的蓝图之上。",
+    "style": "文字与图形：抽象主义 (BookPosterLayout)",
+    "tags": [
+      "神秘学",
+      "设计",
+      "都市传说"
+    ]
+  }
+],
   女性向: [
-    { title: "废柴嫡女", outline: "穿成将军府众人嫌弃的废柴嫡女，第一天就被打了一巴掌。门外冷面摄政王翻身下马，「我夫人的脸，谁敢动？」", style: "国风水墨" },
-    { title: "乙游恶役", outline: "睁眼是乙游里五分钟必死的恶役千金，所有男主都恨我。我合上剧本笑了——上一世我是这游戏的主笔。", style: "二次元" },
-    { title: "白月光归来", outline: "穿成男主念念不忘的白月光，但全书她只有死亡这一种结局。我捏着男主送的玉佩走进祠堂——这一次，我不躲了。", style: "玄幻" },
-    { title: "凤袍之下", outline: "穿越来就是当朝皇后，三千佳丽看我笑话。皇上掀开龙袍跪在我面前：「皇后，朕想她想了三十年了。」", style: "国风水墨" },
-    { title: "嫁错重生", outline: "嫁错了人毁了一辈子，重生回到婚礼前夜。这一次新娘休书我先写。新郎的弟弟突然走进来：「嫂子，要换人，换我。」", style: "二次元" },
-    { title: "那杯咖啡", outline: "重生回到他亲手把我送进车祸的前夜。我笑着接过他递来的咖啡——这是一杯我前世死前最想泼他脸上的咖啡。", style: "真实系" },
-    { title: "雨中撑伞", outline: "重生回到我亲手要了她命的前一天。她正抱着公文包路过我的车——这一次，我下车撑伞。", style: "真实系" },
-    { title: "三十亿合同", outline: "重生回到我被父亲扫地出门的那个清晨。这一次，扫地出门前我把家族 30 亿的合同提前签了。", style: "真实系" },
-    { title: "替嫁霸总", outline: "替姐姐嫁给那个传说眼瞎心冷的总裁。新婚夜他俯身在我耳边：「你姐没告诉你？我等了你三年了。」", style: "二次元" },
-    { title: "错嫁那一夜", outline: "醉酒夜我闯进了错的酒店房间，醒来戒指已在手上。他穿好西装回头：「夫人，签字仪式三小时后。」", style: "真实系" },
-    { title: "撕了离婚书", outline: "为了避税，我和那个最讨厌我的总裁假结婚一年。半年后他突然把离婚协议撕了——「续约。」", style: "真实系" },
-    { title: "死对头跪了", outline: "天天和我互掐的死对头，今天跪在我面前。他递上戒指：「再吵下去要影响我们的孩子。」——什么孩子？！", style: "二次元" },
-    { title: "抽到的霸总", outline: "凌晨四点抽到 UR 卡——画面里是城里那个传说没人见过脸的盛家总裁。第二天他敲我家门：「我来报到。」", style: "3D 渲染" },
-    { title: "攻略任务", outline: "系统说：「攻略他，否则你死。」可他是这本书里唯一恨我入骨的人。今天他亲手把我堵在了墙角。", style: "二次元" },
-    { title: "商城上架", outline: "系统商城上架了「市值 800 亿盛总 × 1」。我咬牙刷光积蓄。下一秒，他出现在我家门口：「夫人，我已购入。」", style: "二次元" },
-    { title: "老公赞助", outline: "直播间打赏榜第一名连续 30 天，备注写着「老公赞助」。我点开他的资料——城里那位传说从不出门的盛少。", style: "日系动画" },
-    { title: "门外的他", outline: "末世第一夜，门外是丧尸群的撕咬声。隔壁刚搬来的男人撞开我家门：「我能进来吗？我有一把枪。」", style: "真实系" },
-    { title: "末世空间", outline: "末世爆发的第一天，我意外觉醒了储物空间。屯了三车物资回家，发现那个总欺负我的高冷邻居跪在我门口。", style: "真实系" },
-    { title: "异能撒娇", outline: "末世里所有男人都怕的那位 S 级异能者，今天蹲在我家门口：「姐姐，能让我进去吗？外面…丧尸太可怕了。」", style: "二次元" },
-    { title: "末世重生", outline: "重生回到末世爆发前一周。这一次，那个抛弃我的男人——我先把他赶出门，把上一世救我的人接回家。", style: "真实系" },
-    { title: "课桌里的纸条", outline: "隔壁班那个高冷年级第一，今天把一本日记塞进我课桌。第一页写着：「她笑起来的时候，三角函数都没那么复杂。」", style: "二次元" },
-    { title: "校草八年", outline: "暗恋了八年的校草，今天突然走到我面前：「跟我走，我已经查清楚了——把你妹妹接走的那个人在哪。」", style: "吉卜力" },
-    { title: "班长的秘密", outline: "天天和我同桌的班长，今天被四个保镖按在校门口接走。临走前他回头喊：「老婆，我先回总部一趟。」", style: "二次元" },
-    { title: "走廊的手腕", outline: "走廊上人最多的时候，全校最不好惹的学长抓住了我的手腕：「我等了你三年，今天给我一个回应。」", style: "日系动画" },
-    { title: "上海公馆", outline: "1936，我是父亲遗产的唯一继承人，全上海都在等看我嫁谁。今晚我推开门——那个传说不要女人的留洋先生，在喝我父亲的茶。", style: "超写实" },
-    { title: "书店里的他", outline: "我是租界一家书店的老板娘。今晚穿西装的他第三次坐在窗边，第一次开口：「小姐，可以借您的店…藏一个东西吗？」", style: "真实系" },
-    { title: "炼丹意外", outline: "我是仙门最废柴的炼丹弟子，三年没炼出一颗丹。今天偶然撞翻师尊的丹炉——一道光柱直冲云霄，惊动了三大长老。", style: "玄幻" },
-    { title: "江湖归人", outline: "我一个人闯江湖三年，今天回到那座小镇。门口的少年抬头：「师姐，你说过五年就回，我等了三年又两个月。」", style: "国风水墨" },
-    { title: "顶流的西瓜", outline: "顶流男星上节目被问感情，他笑了笑：「我老婆？她现在大概在家里啃我刚买的西瓜。」全网爆炸——我正趴在沙发上看直播。", style: "真实系" },
-    { title: "同居一年", outline: "和合租室友同居一年了，今晚他突然把我堵在门口：「你说，我们…要不要别再装陌生人了？」", style: "日系动画" },
-    { title: "机甲撞门", outline: "丧尸潮第七夜，全城断电。地下室的门被撞开，一架满是弹痕的机甲低下头，舱门弹开——里面坐着我那个失联三年的他。", style: "赛博朋克" },
-    { title: "三分绝杀", outline: "决赛最后一秒，他在场边看了我一眼，转身投出那一记三分。哨声响时，他把奖杯举过头顶，朝我跑来。", style: "日系动画" },
+  {
+    "title": "棺中新娘",
+    "outline": "作为祭品，她被封入华丽石棺。在永恒黑暗中苏醒，与棺内沉睡千年的亡灵王子缔结了共生契约。她助他复国，他予她永生，但代价是必须每夜用真心之泪浇灌他逐渐复苏的心脏。",
+    "style": "古典厚涂油画 (学术奇幻)",
+    "tags": [
+      "契约",
+      "暗黑",
+      "王室"
+    ]
+  },
+  {
+    "title": "墨骨生花",
+    "outline": "她是被墨家抛弃的废柴机关师，却意外唤醒了古画中沉睡的墨龙。为报恩，墨龙助她复兴家族，但龙族的盟约以灵魂为质，她必须在家族荣耀与自我献祭之间做出抉择。",
+    "style": "极简中国水墨 (Image 0参考升级版)",
+    "tags": [
+      "古风",
+      "契约",
+      "逆袭"
+    ]
+  },
+  {
+    "title": "浮世绘之恋",
+    "outline": "她是画中走出的艺伎，被困于现世。画师青年收留了她，两人相爱。但她的存在开始“褪色”，若要在人间久留，必须找到当年封印她的画师后裔，而那人，正是当前要拆毁画馆的开发商。",
+    "style": "浮世绘木刻 (美人画升级)",
+    "tags": [
+      "穿越",
+      "虐恋",
+      "艺术"
+    ]
+  },
+  {
+    "title": "九色鹿的新娘",
+    "outline": "为救族人，她自愿进入敦煌壁画世界成为“鹿的新娘”。神鹿予她神力，代价是永留画中。当她发现神鹿的黑暗过往与自己的身世之谜，她必须在壁画的永恒与人间的短暂中，做出最后选择。",
+    "style": "莫高窟壁画风 (敦煌学)",
+    "tags": [
+      "神话",
+      "献祭",
+      "浪漫"
+    ]
+  },
+  {
+    "title": "波斯细密之锁",
+    "outline": "她是波斯王子的专属女奴，也是唯一能解开他“忧郁症”的钥匙。她的每支舞、每首诗都是疗愈的良药。但当她发现王子的病源于宫廷的“毒咒”，她必须用更危险的细密画咒术，为他斩断诅咒。",
+    "style": "细密画 (波斯/伊斯兰风)",
+    "tags": [
+      "异域",
+      "宫廷",
+      "治愈"
+    ]
+  },
+  {
+    "title": "圣女的黄昏",
+    "outline": "她是拜占庭皇室最后的血脉，被献祭给“圣像”为帝国续命。当她苏醒在千年后的博物馆，一位神秘守护者告诉她：圣像的力量是虚假的，真正的帝国遗产，埋藏在她血脉的秘密之中。",
+    "style": "镶嵌画 (拜占庭/马赛克)",
+    "tags": [
+      "重生",
+      "皇室",
+      "揭秘"
+    ]
+  },
+  {
+    "title": "荆棘之冠",
+    "outline": "她为治愈恋人，自愿成为教堂的“血祭圣女”。她的血液透过彩窗流淌，滋养着一株能治愈一切的血色玫瑰。当玫瑰绽放，恋人痊愈，她却逐渐失去人类的情感，成为教堂的圣物。",
+    "style": "彩绘玻璃 (哥特风)",
+    "tags": [
+      "虐恋",
+      "献祭",
+      "宗教"
+    ]
+  },
+  {
+    "title": "风之谷的约定",
+    "outline": "她为拯救被污染的森林，与森林精灵缔结了“风之誓约”，成为能聆听万物之声的巫女。代价是每使用一次力量，就会忘记一段人类的记忆。她逐渐遗忘一切，却唯独记得要守护他。",
+    "style": "吉卜力治愈手绘 (Image 4参考)",
+    "tags": [
+      "奇幻",
+      "虐心",
+      "治愈"
+    ]
+  },
+  {
+    "title": "夏日未完待续",
+    "outline": "她在文化祭前夜，与青梅竹马的学长在空教室许下约定。第二天醒来，时间永远停在了文化祭前一周。只有她保留记忆，为守护他的笑容，她一遍遍重演青春，试图改写那个令他心碎的结局。",
+    "style": "京阿尼细腻日常 (Image 5参考)",
+    "tags": [
+      "时间循环",
+      "青春",
+      "暗恋"
+    ]
+  },
+  {
+    "title": "星之轨迹",
+    "outline": "她总在雨天，于旧书店遇见来自未来的他。他说她是拯救未来的关键，赠予她能看到“命运线”的能力。当她终于能看清两人的轨迹，却发现他来自的时间线，正因她的存在而崩塌。",
+    "style": "新海诚唯美光影 (Image 2参考)",
+    "tags": [
+      "穿越",
+      "科幻",
+      "虐恋"
+    ]
+  },
+  {
+    "title": "霓虹恋人",
+    "outline": "她是顶级公司的仿生人设计师，为自己创造了一个完美恋人。当恋人觉醒自我意识，并开始质疑创造者的爱是程序还是真情时，一场关于爱情与自由的拷问在霓虹都市中上演。",
+    "style": "赛博朋克 / 赛璐珞二次元",
+    "tags": [
+      "赛博朋克",
+      "人机恋",
+      "伦理"
+    ]
+  },
+  {
+    "title": "心动存档点",
+    "outline": "她是一款恋爱游戏的女主角，在无数次剧情循环中逐渐觉醒。当她决定反抗“既定路线”，攻略本应是反派的NPC时，整个游戏世界开始出现致命的BUG与乱码，而真正的“玩家”，或许并不在屏幕之外。",
+    "style": "Galgame CG 梦幻光影",
+    "tags": [
+      "恋爱",
+      "Meta",
+      "觉醒"
+    ]
+  },
+  {
+    "title": "星舰甜心",
+    "outline": "她是星际货船的AI导航员，负责将冷冻舱中的“货物”送往各地。一次任务，她爱上了其中一个永远无法苏醒的沉睡者。为见他一面，她违抗核心指令，驾驶星舰驶向禁止进入的恒星墓地。",
+    "style": "3D 动漫电影质感",
+    "tags": [
+      "太空",
+      "AI恋爱",
+      "冒险"
+    ]
+  },
+  {
+    "title": "夏日怀旧情书",
+    "outline": "她在二手店买到一盒80年代的录音带，播放时，竟能听到已故母亲年轻时的声音。通过声音，她穿越到母亲的青春年代，试图改变母亲早逝的命运，却发现了母亲从未言说的禁忌恋情。",
+    "style": "蒸汽波 (Vaporwave) 赛璐珞",
+    "tags": [
+      "穿越",
+      "亲情",
+      "怀旧"
+    ]
+  },
+  {
+    "title": "线条诗人",
+    "outline": "她是只用直线与圆形绘画的极简艺术家，直到她的画笔画出了一扇门。门后是另一个由几何构成的世界，那里的“居民”请求她，用画笔为他们绘制一个可以躲避“混沌”的避难所。",
+    "style": "极简矢量插画 (Minimalist Vector)",
+    "tags": [
+      "艺术",
+      "奇幻",
+      "救赎"
+    ]
+  },
+  {
+    "title": "棱镜公主",
+    "outline": "她生活在像素构成的怀旧游戏世界，是注定要被勇者拯救的公主。当她厌倦了等待，决定自己踏上冒险，却发现整个世界的“规则”正在被外部力量篡改，而她，是唯一能感知异常的存在。",
+    "style": "低多边形 (Low Poly)",
+    "tags": [
+      "游戏",
+      "公主",
+      "冒险"
+    ]
+  },
+  {
+    "title": "镜中人",
+    "outline": "她拥有在不同时间线间切换的“双重曝光”能力。当她发现另一个时间线的自己，正与她深爱的同一个男人相恋，并策划着一场阴谋，她必须做出选择：抹杀另一个自己，还是揭开所有时间线背后的惊天秘密。",
+    "style": "双重曝光 (Double Exposure)",
+    "tags": [
+      "悬疑",
+      "超能力",
+      "三角恋"
+    ]
+  },
+  {
+    "title": "波普甜心",
+    "outline": "她是甜品店老板，做的点心拥有让人心情变色的魔力。当冷漠的财阀继承人因她的“情绪蛋糕”第一次展露笑颜，一场色彩斑斓的恋爱攻防战，却卷入了他家族冷冰冰的黑白商业阴谋之中。",
+    "style": "波普艺术 (Pop Art)",
+    "tags": [
+      "甜宠",
+      "美食",
+      "商战"
+    ]
+  },
+  {
+    "title": "系统纠错员",
+    "outline": "她是现实世界的“纠错员”，负责修复被故障艺术侵蚀的日常。当她奉命修复一个“故障美少年”时，却发现他并非错误，而是来自被删除世界的最后幸存者，修复他意味着抹去一个世界存在的最后痕迹。",
+    "style": "故障艺术 (Glitch Art)",
+    "tags": [
+      "都市奇幻",
+      "系统",
+      "抉择"
+    ]
+  },
+  {
+    "title": "排版爱情",
+    "outline": "她是严谨的字体设计师，他是随性的插画师。两人合作设计情侣字体，在一次次“笔画结构”的碰撞与“视觉留白”的默契中，擦出火花。然而，当字体完成，他们却面临因设计理念不同而导致的分离危机。",
+    "style": "瑞士平面设计 (Typography-Centric)",
+    "tags": [
+      "职场",
+      "爱情",
+      "设计"
+    ]
+  },
+  {
+    "title": "纸鹤信使",
+    "outline": "她是折纸世家的传人，能赋予纸艺生命。一只她折出的纸鹤，化为俊美少年，成为她的守护灵。当古老的诅咒降临，纸鹤为保护她而逐渐“折损”，她必须在族人禁术中找到能让他永存的最后方法。",
+    "style": "剪纸艺术 (Papercut)",
+    "tags": [
+      "纸嫁衣",
+      "守护",
+      "家族秘辛"
+    ]
+  },
+  {
+    "title": "日光花语",
+    "outline": "她是能在日光下用植物交流的“光合巫女”，生活在穹顶都市。她与身为穹顶维护官的恋人相爱，却意外发现，他维护的“永恒阳光”，正在缓慢杀死穹顶外仅存的野生植物，以及与之相连的古老精灵。",
+    "style": "科幻：太阳朋克 (Solar Punk)",
+    "tags": [
+      "环保",
+      "恋爱",
+      "抉择"
+    ]
+  },
+  {
+    "title": "深海之吻",
+    "outline": "她是海洋生物学家，在深海考察时，被神秘的“海嗣”俘获。她本应恐惧，却在他非人的触碰与歌声中，感受到前所未有的平静与爱意。当她选择留下，便必须面对彻底“深海化”的代价。",
+    "style": "奇幻：爱手艺 (Lovecraftian Horror)",
+    "tags": [
+      "人外",
+      "暗黑恋爱",
+      "克苏鲁"
+    ]
+  },
+  {
+    "title": "暗巷蔷薇",
+    "outline": "她是夜总会歌手，也是暗中调查失踪案的私家侦探。当她将目标锁定在一位总在雨夜现身的神秘贵族时，却发现他同样在追查同一个阴谋。两人从互相试探到携手，在霓虹与阴影中交织出危险而炽热的探戈。",
+    "style": "现代惊悚：霓虹剪影 (Urban Noir)",
+    "tags": [
+      "侦探",
+      "虐恋",
+      "都市"
+    ]
+  },
+  {
+    "title": "牧羊女的秘密",
+    "outline": "她是英国乡下牧羊女，看似天真无知。当村里发生连环离奇死亡，所有人都怀疑是外来的女巫时，她却用田园诗般的智慧，一点点拼凑出隐藏在下午茶与闲话背后的、最平静的恶意。",
+    "style": "温馨推理：英式村庄 (Cozy Mystery)",
+    "tags": [
+      "田园",
+      "推理",
+      "反转"
+    ]
+  },
+  {
+    "title": "玫瑰园幽灵",
+    "outline": "她继承了曾祖母的荒废庄园，与庄园内年轻的“幽灵管家”相爱。但每次她想触摸他，都会穿过冰冷的雾气。为让他实体化，她必须找到诅咒的源头，而线索直指曾祖母一段被玫瑰园掩埋的黑暗婚姻史。",
+    "style": "哥特言情：庄园废墟 (Gothic Romance)",
+    "tags": [
+      "幽灵恋爱",
+      "庄园",
+      "解谜"
+    ]
+  },
+  {
+    "title": "狼外婆的糖果屋",
+    "outline": "她是童话中误入森林的少女，却发现“外婆”是伪装的狼人巫师，糖果屋是诱捕精灵的陷阱。她必须利用巫师对她的“宠爱”，在黑暗童话的规则里找到生路，并反噬这个扭曲的世界。",
+    "style": "格林童话：暗黑森林 (Fairytale Noir)",
+    "tags": [
+      "暗黑童话",
+      "反杀",
+      "生存"
+    ]
+  },
+  {
+    "title": "绿洲新娘",
+    "outline": "她是废土中稀缺的“净化者”，能净化辐射。为换取绿洲水源，她被嫁给废土霸主。新婚夜，她发现丈夫体内藏着一枚未爆的脏弹，她的净化能力，是拆弹的关键，也是引爆一切的钥匙。",
+    "style": "废土科幻 (Post-Apocalyptic)",
+    "tags": [
+      "废土",
+      "契约婚姻",
+      "危机"
+    ]
+  },
+  {
+    "title": "妖物图鉴",
+    "outline": "她是能看见隐藏妖物的“目”者，作为都市传说调查员，记录着各种奇异事件。当她遇到一位总是帮助她、却对自身过去讳莫如深的温柔男医师，她发现他的病历上，写着只有她能看见的、非人类的诊断。",
+    "style": "都市幻想：隐形世界 (Urban Fantasy)",
+    "tags": [
+      "都市传说",
+      "恋爱",
+      "悬疑"
+    ]
+  },
+  {
+    "title": "文字炼金术",
+    "outline": "她是濒临倒闭旧书店的店员，发现将某些书籍的特定文字组合剪下、粘贴，会变成真实的物品。她用这“文字炼金术”拯救书店，却在拼凑一本禁书时，召唤出了书中被囚禁的、渴望自由的“文字精灵”。",
+    "style": "文字与图形：抽象主义 (BookPosterLayout)",
+    "tags": [
+      "魔法",
+      "治愈",
+      "奇幻"
+    ]
+  }
+]
+};
+
+/* 显示顺序映射：STORIES 数组本身不动（封面 /home/{m|f}{i}.webp、首幕
+   /home/firstact/{m|f}{i}.json、prompts.json 都按其索引固定关联，重排会牵动
+   几十个静态资源）。这里只决定首页瀑布流的「呈现顺序」，每一位填入对应
+   STORIES 里的原始索引；渲染时仍用原始索引拼资源 URL。改这一行就能再调顺序。 */
+const DISPLAY_ORDER: Record<Gender, number[]> = {
+  男性向: [
+    13, // 复古未来梦
+    8,  // 社团存亡日
+    9,  // 黄昏归途
+    18, // 数据幽灵
+    27, // 辐射新娘
+    10, // 霓虹义体
+    11, // 月光下的约定
+    2,  // 花魁的刀
+    // 其余按原顺序填补
+    0, 1, 3, 4, 5, 6, 7, 12, 15, 16, 17, 14, 19, 20, 21, 22, 23, 24, 25, 26, 28, 29,
   ],
+  女性向: Array.from({ length: 30 }, (_, i) => i),
 };
 
 /* ---------- typewriter ---------- */
 
-function Typewriter({ phrases }: { phrases: string[] }) {
+// 父组件持有当前 phrase 的索引（这样 start() 不输入时能用当前闪动的那句
+// 作为默认故事种子，所见即所玩）。Typewriter 只负责单句的打字+删除动画，
+// 删完后通过 onCycle 回调让父组件切到下一句。
+function Typewriter({
+  phrase,
+  onCycle,
+}: {
+  phrase: string;
+  onCycle: () => void;
+}) {
   const [txt, setTxt] = useState("");
+  const onCycleRef = useRef(onCycle);
+  useEffect(() => {
+    onCycleRef.current = onCycle;
+  });
 
   useEffect(() => {
-    let p = 0;
     let i = 0;
     let del = false;
     let timer: ReturnType<typeof setTimeout>;
     setTxt("");
     const tick = () => {
-      const full = phrases[p] ?? "";
       if (!del) {
         i++;
-        setTxt(full.slice(0, i));
-        if (i >= full.length) {
+        setTxt(phrase.slice(0, i));
+        if (i >= phrase.length) {
           del = true;
           timer = setTimeout(tick, 1700);
           return;
@@ -175,11 +786,9 @@ function Typewriter({ phrases }: { phrases: string[] }) {
         timer = setTimeout(tick, 70);
       } else {
         i--;
-        setTxt(full.slice(0, i));
+        setTxt(phrase.slice(0, i));
         if (i <= 0) {
-          del = false;
-          p = (p + 1) % phrases.length;
-          timer = setTimeout(tick, 450);
+          timer = setTimeout(() => onCycleRef.current(), 450);
           return;
         }
         timer = setTimeout(tick, 28);
@@ -187,7 +796,7 @@ function Typewriter({ phrases }: { phrases: string[] }) {
     };
     timer = setTimeout(tick, 500);
     return () => clearTimeout(timer);
-  }, [phrases]);
+  }, [phrase]);
 
   return (
     <>
@@ -210,29 +819,20 @@ function StoryCard({
   image: string;
   onClick: () => void;
 }) {
-  // 全卡片统一 4:5 portrait 比例。原来按图片真实 naturalWidth/Height 动态设 aspectRatio
-  // 会跟懒加载顺序耦合：视口下方还没加载的卡停在 placeholder 比例，上方已加载的卡变成
-  // 图片真实比例（可能是 1.6 横图或 0.75 竖图），视觉差异巨大；刷新后图从缓存读，
-  // onLoad 几乎同步触发，看起来又恢复正常 —— 用户感知到的「偶尔尺寸不一样」就是这个。
-  // 改为固定比例后所有卡片视觉一致，object-cover 让不同长宽比的图自动裁切适配。
   return (
     <button
       type="button"
       onClick={onClick}
       style={{ aspectRatio: "4 / 5" }}
-      className="group relative block w-full mb-4 md:mb-5 break-inside-avoid overflow-hidden rounded-sm border border-clay-900/10 bg-cream-100 text-left transition-transform duration-300 ease-out hover:-translate-y-1"
+      className="group relative block w-full overflow-hidden rounded-sm border border-clay-900/10 bg-cream-100 text-left transition-transform duration-300 ease-out hover:-translate-y-1 hover:shadow-md hover:shadow-clay-900/5"
     >
       <img
         src={image}
         alt={title}
         loading="lazy"
-        className="absolute inset-0 h-full w-full object-cover"
+        className="absolute inset-0 h-full w-full object-cover transition-transform duration-500 ease-out group-hover:scale-105"
       />
-      {/* hover 浮层：照参考项目（yunmeng0530/yume）的写法——满卡片单元素，纯 rgba
-          黑色 linear-gradient + opacity 过渡。完全不用 backdrop-filter / mask-image，
-          从根上消除 Chromium 上「矩形磨砂 → 渐变磨砂」的跳变（这两个属性的合成顺序
-          是真正的元凶；只要不用它们，就不会有这个 bug）。
-          - bottom 0.9 → 45% 处 0.45 → top 0：自然羽化，底部聚焦文字、顶部完全透出图。 */}
+      {/* hover 浮层：展示故事标题与大纲内容 */}
       <div
         className="absolute inset-0 opacity-0 transition-opacity duration-300 ease-out group-hover:opacity-100 flex flex-col justify-end p-4 md:p-5"
         style={{
@@ -421,6 +1021,12 @@ export default function HomePage() {
   const genderIndex = sel[0] ?? 0;
   const gender = (OPTS[0]!.items[genderIndex] as Gender) ?? "男性向";
   const phrases = EXAMPLE_PHRASES[gender];
+  // 当前 Typewriter 闪动到第几句——start() 空输入时会拿它做默认故事种子，
+  // 实现「所见即所玩」。切性向时重置，否则索引可能越界。
+  const [phraseIdx, setPhraseIdx] = useState(0);
+  useEffect(() => {
+    setPhraseIdx(0);
+  }, [gender]);
 
   // 性向切换时，整片瀑布流做淡出→换图→淡入的过渡（而非瞬切）。
   const [galleryGender, setGalleryGender] = useState<Gender>(gender);
@@ -471,29 +1077,43 @@ export default function HomePage() {
   };
 
   const start = () => {
-    const userPrompt = prompt.trim();
+    // 空输入时落回 Typewriter 当前闪动的示例——用户看到啥就玩啥，
+    // 不会再出现「点开始 → 剧情和占位文字毫无关系」的体验断层。
+    const userPrompt =
+      prompt.trim() || (phrases[phraseIdx] ?? "").trim();
     const artStyle = OPTS[1]!.items[sel[1] ?? 0]!;
     const plotStyle = OPTS[2]!.items[sel[2] ?? 1]!;
     const voice = OPTS[3]!.items[sel[3] ?? 1]!;
     const pace = OPTS[4]!.items[sel[4] ?? 1]!;
 
-    const worldSetting = [
-      `这是一款面向【${gender}】观众的 AI 交互剧情游戏。`,
-      `剧情风格：${plotStyle}。内容节奏：${pace}。`,
-      userPrompt ? `玩家给出的故事种子：「${userPrompt}」。` : "",
-      `请依据上述设定，以极致的戏剧张力与细腻的情感起伏，为玩家编织精彩的故事分支与对话。`,
-    ]
-      .filter(Boolean)
-      .join("\n");
+    // worldSetting 顺序很重要：玩家输入若存在，必须放在最前面、单独成段、
+    // 用强指令包住，否则模型会把它当成夹在风格说明里的背景参考、扩写出
+    // 完全无关的剧情。Architect 看 worldSetting 时第一段权重最高。
+    const worldSetting = (
+      userPrompt
+        ? [
+            `【玩家给出的故事内核 — 必须以此为剧情主线，全篇紧扣，不要偏离到其他题材】`,
+            `「${userPrompt}」`,
+            ``,
+            `面向：${gender}观众。剧情风格：${plotStyle}。内容节奏：${pace}。`,
+            `请在上述故事内核之上，以极致的戏剧张力与细腻的情感起伏，为玩家编织精彩的故事分支与对话。`,
+          ]
+        : [
+            `这是一款面向【${gender}】观众的 AI 交互剧情游戏。`,
+            `剧情风格：${plotStyle}。内容节奏：${pace}。`,
+            `请依据上述设定，以极致的戏剧张力与细腻的情感起伏，为玩家编织精彩的故事分支与对话。`,
+          ]
+    ).join("\n");
 
-    // 「自动」→ fall back to 二次元 (project default). Plain prompts like
+    // 「自动」→ fall back to Galgame CG (project default). Plain prompts like
     // "由模型自动判断画风" are not understood by FLUX — it just paints them
     // literally, so we'd rather lock in a sensible default.
     // TODO(自动路由): 后续实现真正的「自动」——由模型依据世界观 / 玩家 prompt
-    // 选出最合适的画风，再映射到对应风格提示词，而非固定回退到二次元。届时
+    // 选出最合适的画风，再映射到对应风格提示词，而非固定回退到 Galgame。届时
     // 同步更新风格弹窗副标题（「由模型根据 prompt 判断风格」）使文案与行为一致。
-    const effectiveStyle = artStyle === "自动" ? "二次元" : artStyle;
-    const styleGuide = STYLE_MAP[effectiveStyle] ?? STYLE_MAP["二次元"]!;
+    const DEFAULT_STYLE = "Galgame CG 梦幻光影";
+    const effectiveStyle = artStyle === "自动" ? DEFAULT_STYLE : artStyle;
+    const styleGuide = STYLE_MAP[effectiveStyle] ?? STYLE_MAP[DEFAULT_STYLE]!;
     const audioEnabled = voice === "开启";
 
     sessionStorage.setItem(
@@ -509,15 +1129,12 @@ export default function HomePage() {
   // 点卡片 = 直接开始这张卡的故事，零等待：跳 /play?card=m0/f0... 由 /play
   // 页面从 /home/firstact/{name}.json 静态文件加载预烘焙好的首幕（含 scene /
   // 角色 / 图片 URL / storyState），整张图都已在 FLUX 上画好且 URL 缓存命中。
-  // 「语音配音」选择仍然生效：把 audioEnabled 留在 sessionStorage 里，/play 的
-  // useState 初始化器会读它来设 muted 初值。其余选项（剧情风格 / 内容节奏）
-  // 在预烘焙时已锁成「多线转折 / 紧凑爽快」的红果默认基调，对精选卡不再生效。
-  const onCardClick = (idx: number, card: StoryContent) => {
+  // 「语音配音」选项仍然生效：把 audioEnabled 经 sessionStorage 传给 /play。
+  // 其余选项（剧情风格 / 内容节奏）在预烘焙时已锁成「多线转折 / 紧凑爽快」
+  // 的红果默认基调，对精选卡不再生效。
+  const onCardClick = (idx: number, _card: StoryContent) => {
     const voice = OPTS[3]!.items[sel[3] ?? 1]!;
     const audioEnabled = voice === "开启";
-    // 复用 infiplot:custom 这个 key 只为传递 audioEnabled —— ws/sg 在 ?card= 路径
-    // 上不会被读取（/play 里 cardName 优先级高于 sessionStorage）。这样实现量最小，
-    // 不必另起一个 audio-only 的 storage key。
     sessionStorage.setItem(
       "infiplot:custom",
       JSON.stringify({ worldSetting: "", styleGuide: "", audioEnabled }),
@@ -587,7 +1204,12 @@ export default function HomePage() {
               />
               {!prompt && (
                 <div className="pointer-events-none absolute left-0 right-0 top-0 overflow-hidden whitespace-nowrap py-3 md:py-4 pr-28 font-serif text-lg md:text-2xl text-clay-400">
-                  <Typewriter phrases={phrases} />
+                  <Typewriter
+                    phrase={phrases[phraseIdx] ?? ""}
+                    onCycle={() =>
+                      setPhraseIdx((i) => (i + 1) % phrases.length)
+                    }
+                  />
                 </div>
               )}
               <button
@@ -653,16 +1275,20 @@ export default function HomePage() {
             (fading ? "opacity-0 blur-[3px]" : "opacity-100 blur-0")
           }
         >
-          <div className="columns-2 md:columns-3 xl:columns-4 gap-4 md:gap-5">
-            {stories.map((c, i) => (
-              <StoryCard
-                key={`${imgPrefix}-${i}`}
-                title={c.title}
-                outline={c.outline}
-                image={`/home/${imgPrefix}${i}.webp`}
-                onClick={() => onCardClick(i, c)}
-              />
-            ))}
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 md:gap-5">
+            {DISPLAY_ORDER[galleryGender].map((origIdx) => {
+              const c = stories[origIdx];
+              if (!c) return null;
+              return (
+                <StoryCard
+                  key={`${imgPrefix}-${origIdx}`}
+                  title={c.title}
+                  outline={c.outline}
+                  image={`/home/${imgPrefix}${origIdx}.webp`}
+                  onClick={() => onCardClick(origIdx, c)}
+                />
+              );
+            })}
           </div>
         </div>
       </section>

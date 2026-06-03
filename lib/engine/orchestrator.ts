@@ -53,9 +53,15 @@ export async function startSession(
   // bible BEFORE the first scene. Serial by necessity (the opening Writer
   // reads session.storyState), but it gives the whole story a spine from beat
   // one — the latency is offset by the director's portrait/voice overlap win.
+  console.log(
+    `[start] worldSetting (${session.worldSetting.length} chars):\n${session.worldSetting}`,
+  );
   const tArchitect = Date.now();
   session.storyState = await runArchitect(config.text, session);
   tlog("[start] Architect", tArchitect);
+  console.log(
+    `[start] storyBible: logline="${session.storyState.logline}" | genreTags="${session.storyState.genreTags}" | synopsis="${session.storyState.synopsis}"`,
+  );
 
   const { scene, sceneImageUrl, characters, storyState } = await directScene(
     config,
