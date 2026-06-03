@@ -47,6 +47,13 @@ export type PainterInput = {
    * with character refs, capped at 4 total per Runware spec.
    */
   priorSceneImage?: string;
+  /**
+   * User-uploaded style reference (data URL base64). When set, it takes the
+   * highest-priority slot in referenceImages so the painting STYLE (brush /
+   * color / mood) of the user's image is anchored across every scene this
+   * session paints — even before any priorScene exists.
+   */
+  styleReferenceImage?: string;
 };
 
 // Pick the references we send to Runware as `referenceImages`. Priority:
@@ -59,14 +66,22 @@ export function collectReferenceImages(
   characters: Character[],
   entryBeat: Beat | undefined,
   priorSceneImage: string | undefined,
+  styleReferenceImage?: string,
 ): string[] {
   const refs: string[] = [];
   const seen = new Set<string>();
 
-  // Slot 0 — prior scene image for spatial continuity. Goes first because
-  // backdrop drift is the most jarring discontinuity across same-sceneKey
-  // scenes; character drift is partially masked by character archetype text
-  // in the prompt anyway.
+  // Slot 0 — user-uploaded style reference image, if any. Goes first because
+  // it anchors the whole-session painting STYLE (brush / color / mood) that
+  // the user explicitly chose. priorScene continuity comes second; character
+  // archetypes are partially covered by the prompt text anyway.
+  if (styleReferenceImage) {
+    refs.push(styleReferenceImage);
+  }
+
+  // Slot N — prior scene image for spatial continuity. Backdrop drift is the
+  // next-most jarring discontinuity across same-sceneKey scenes; character
+  // drift is partially masked by character archetype text in the prompt.
   if (priorSceneImage) {
     refs.push(priorSceneImage);
   }
@@ -140,6 +155,7 @@ export async function runPainter(
     input.onStageCharacters,
     entryBeat,
     input.priorSceneImage,
+    input.styleReferenceImage,
   );
 
   // Tier A — with referenceImages (priorSceneImage + character portraits).

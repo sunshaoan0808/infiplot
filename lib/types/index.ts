@@ -206,6 +206,14 @@ export type Session = {
    * session payload created before this field existed.
    */
   storyState?: StoryState;
+  /**
+   * Optional user-uploaded style reference image (data URL — `data:image/...;base64,...`).
+   * When set, the Painter prepends it to `referenceImages` on every scene so the
+   * uploaded image anchors painting style (brush, color, mood) across the whole
+   * session. Resized client-side before upload (~512px max dim) to keep session
+   * payload small for /api/scene round-trips.
+   */
+  styleReferenceImage?: string;
 };
 
 // ──────────────────────────────────────────────────────────────────────
@@ -253,6 +261,21 @@ export type EngineConfig = {
 export type StartRequest = {
   worldSetting: string;
   styleGuide: string;
+  /** Optional user-uploaded style reference image — see Session.styleReferenceImage. */
+  styleReferenceImage?: string;
+};
+
+// /api/parse-style-image — vision LLM extracts a textual painting-style
+// prompt from a user-uploaded reference image. The same base64 is echoed
+// back so the client can later pass it through to /api/start.
+export type ParseStyleImageRequest = {
+  /** Data URL: `data:image/...;base64,...`. */
+  imageDataUrl: string;
+};
+
+export type ParseStyleImageResponse = {
+  /** English style prompt suitable as a styleGuide (FLUX-friendly attributes). */
+  stylePrompt: string;
 };
 
 export type StartResponse = {

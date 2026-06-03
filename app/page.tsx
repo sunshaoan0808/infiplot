@@ -889,6 +889,8 @@ function StyleModal({
   setCustomStyleGuide,
   styleOverrides,
   setStyleOverrides,
+  customStyleRefImage,
+  setCustomStyleRefImage,
 }: {
   items: string[];
   value: number;
@@ -898,6 +900,8 @@ function StyleModal({
   setCustomStyleGuide: (s: string) => void;
   styleOverrides: Record<string, string>;
   setStyleOverrides: (o: Record<string, string>) => void;
+  customStyleRefImage: string;
+  setCustomStyleRefImage: (s: string) => void;
 }) {
   const [q, setQ] = useState("");
   const [shown, setShown] = useState(false);
@@ -905,6 +909,10 @@ function StyleModal({
   // 列表保持原位（不跳新页面），其他卡片继续可见——用户随时可以取消并切到别处。
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
   const [draft, setDraft] = useState("");
+  // 上传 / 解析参考图的瞬时状态——失败/进行中提示只在此次弹窗内可见。
+  const [parsing, setParsing] = useState(false);
+  const [parseError, setParseError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
     const id = requestAnimationFrame(() => setShown(true));
     return () => cancelAnimationFrame(id);
@@ -941,6 +949,76 @@ function StyleModal({
     delete next[name];
     setStyleOverrides(next);
     setDraft(STYLE_MAP[name] ?? "");
+  };
+
+  // 客户端把上传的图片缩到 512px 长边 + webp(0.85)，base64 通常落在 30-80KB。
+  // 必须客户端做：(1) 上传 / 后续 /api/scene 都会带这串，包不能太大；
+  //              (2) Runware referenceImages 支持 base64，无需另外加 upload 端点。
+  const resizeImageToDataUrl = async (file: File): Promise<string> => {
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve(String(r.result));
+      r.onerror = () => reject(new Error("读取文件失败"));
+      r.readAsDataURL(file);
+    });
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const i = new Image();
+      i.onload = () => resolve(i);
+      i.onerror = () => reject(new Error("无法解码图片"));
+      i.src = dataUrl;
+    });
+    const MAX_DIM = 512;
+    const scale = Math.min(1, MAX_DIM / Math.max(img.width, img.height));
+    const w = Math.round(img.width * scale);
+    const h = Math.round(img.height * scale);
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("Canvas 2D context unavailable");
+    ctx.drawImage(img, 0, 0, w, h);
+    // webp 比 jpeg 体积更小一些；浏览器全支持。降级到 jpeg 作为兜底。
+    let out = canvas.toDataURL("image/webp", 0.85);
+    if (!out.startsWith("data:image/webp")) {
+      out = canvas.toDataURL("image/jpeg", 0.85);
+    }
+    return out;
+  };
+
+  const handleUploadStyleImage = async (file: File) => {
+    setParseError(null);
+    if (!file.type.startsWith("image/")) {
+      setParseError("只支持图片文件");
+      return;
+    }
+    setParsing(true);
+    try {
+      const resized = await resizeImageToDataUrl(file);
+      const res = await fetch("/api/parse-style-image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imageDataUrl: resized }),
+      });
+      if (!res.ok) {
+        const j = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(j.error ?? `${res.status}`);
+      }
+      const data = (await res.json()) as { stylePrompt: string };
+      // 收到 AI 解析后的 prompt → 覆盖正在编辑的 draft + 持久化参考图。
+      // 用户事后还可以手动改 draft（仍是 textarea）。
+      setDraft(data.stylePrompt);
+      setCustomStyleRefImage(resized);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "解析失败";
+      setParseError(msg);
+    } finally {
+      setParsing(false);
+    }
+  };
+
+  const removeStyleRefImage = () => {
+    setCustomStyleRefImage("");
+    setParseError(null);
   };
   // 标题取去掉括号后缀的"主名"——括号里的英文 / 「Image N参考」之类的脚注
   // 在标题位上显示噪声太大，挪到下方 prompt 行也已经覆盖到了。两种括号都
@@ -1069,6 +1147,15 @@ function StyleModal({
                         已改
                       </span>
                     )}
+                    {isCustom && customStyleRefImage && !isEditing && (
+                      <span
+                        className="inline-flex items-center gap-1 rounded-sm border border-ember-500/40 bg-ember-500/10 px-1.5 py-0.5 font-sans text-[10px] tracking-wide text-ember-500"
+                        title="参考图已附带——每一幕画师都会参考这张图"
+                      >
+                        <i className="fa-regular fa-image text-[9px]" />
+                        附参考图
+                      </span>
+                    )}
                   </span>
 
                   {/* 「自动」语义就是「让 AI 自己判断画风」，没有 prompt 可显示也无从编辑；
@@ -1080,6 +1167,103 @@ function StyleModal({
                   ) : /* prompt 区域：非编辑态是看起来像文本框的只读容器；编辑态是真的 textarea */
                   isEditing ? (
                     <div className="mt-1.5 flex flex-col gap-2">
+                      {/* 自定义卡专属：上传画风参考图。上传后会：(1) 用 vision LLM
+                          解析成 prompt 覆盖到下方 textarea；(2) 图片本身随会话送到
+                          画师，每幕都作为 reference 锚定画风。 */}
+                      {isCustom && (
+                        <div
+                          onClick={(e) => e.stopPropagation()}
+                          className="flex flex-col gap-2"
+                        >
+                          <input
+                            ref={fileInputRef}
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={(e) => {
+                              const f = e.target.files?.[0];
+                              if (f) handleUploadStyleImage(f);
+                              // reset 让同一文件重选能再次触发 onChange
+                              if (fileInputRef.current) fileInputRef.current.value = "";
+                            }}
+                          />
+                          {customStyleRefImage ? (
+                            <div className="flex items-center gap-3 rounded-sm border border-clay-900/12 bg-cream-100 px-3 py-2.5">
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img
+                                src={customStyleRefImage}
+                                alt="画风参考图"
+                                className="h-14 w-14 shrink-0 rounded-sm border border-clay-900/10 object-cover"
+                              />
+                              <div className="flex min-w-0 flex-1 flex-col">
+                                <span className="font-sans text-[12px] text-clay-900">
+                                  <i className="fa-solid fa-check mr-1.5 text-ember-500" />
+                                  参考图已上传
+                                </span>
+                                <span className="font-sans text-[11px] leading-snug text-clay-500">
+                                  AI 已解析为下方 prompt；每一幕画师都会参考这张图
+                                </span>
+                              </div>
+                              <div className="flex flex-col items-end gap-1">
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    fileInputRef.current?.click();
+                                  }}
+                                  disabled={parsing}
+                                  className="font-sans text-[11px] text-clay-500 hover:text-ember-500 transition-colors disabled:opacity-50"
+                                >
+                                  换一张
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    removeStyleRefImage();
+                                  }}
+                                  className="font-sans text-[11px] text-clay-400 hover:text-clay-900 transition-colors"
+                                >
+                                  移除
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                fileInputRef.current?.click();
+                              }}
+                              disabled={parsing}
+                              className={
+                                "flex items-center justify-center gap-2 rounded-sm border border-dashed px-3 py-2.5 font-sans text-[12px] transition-colors " +
+                                (parsing
+                                  ? "border-clay-900/15 bg-cream-100 text-clay-400 cursor-wait"
+                                  : "border-clay-900/25 text-clay-700 hover:border-ember-500 hover:bg-ember-500/5 hover:text-ember-500")
+                              }
+                            >
+                              {parsing ? (
+                                <>
+                                  <i className="fa-solid fa-circle-notch fa-spin text-[11px]" />
+                                  AI 正在解析参考图…
+                                </>
+                              ) : (
+                                <>
+                                  <i className="fa-regular fa-image text-[13px]" />
+                                  上传画风参考图（可选）· AI 自动解析为 prompt
+                                </>
+                              )}
+                            </button>
+                          )}
+                          {parseError && (
+                            <span className="font-sans text-[11px] text-rose-500">
+                              <i className="fa-solid fa-circle-exclamation mr-1" />
+                              {parseError}
+                            </span>
+                          )}
+                        </div>
+                      )}
                       <textarea
                         value={draft}
                         onChange={(e) => setDraft(e.target.value)}
@@ -1215,6 +1399,10 @@ export default function HomePage() {
   // 这个 source-of-truth。键是预设名（如 "京阿尼细腻日常"），值是 override prompt。
   // 选中该预设 + 有 override → 把 override 当 styleGuide 喂给画师。
   const [styleOverrides, setStyleOverrides] = useState<Record<string, string>>({});
+  // 用户在「自定义」里上传的参考图（已客户端缩到 512px、webp base64）。
+  // 同时随 sessionStorage 透传到 /play → /api/start → session → painter，
+  // 每一幕的 painter 都会把它作为 reference slot 0，锚定整局画风。
+  const [customStyleRefImage, setCustomStyleRefImage] = useState<string>("");
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   // 顶部使用提示：默认展示，用户可点 × 永久关闭（localStorage:infiplot:hintClosed）。
@@ -1330,9 +1518,15 @@ export default function HomePage() {
     }
     const audioEnabled = voice === "开启";
 
+    // 只有「自定义」风格选中、且确实上传了参考图时才透传——其他预设没必要
+    // 占用 reference slot（也避免 styleGuide 已经是文本预设、画师收到不相关
+    // 参考图反而产生干扰）。
+    const styleReferenceImage =
+      artStyle === "自定义" && customStyleRefImage ? customStyleRefImage : undefined;
+
     sessionStorage.setItem(
       "infiplot:custom",
-      JSON.stringify({ worldSetting, styleGuide, audioEnabled }),
+      JSON.stringify({ worldSetting, styleGuide, audioEnabled, styleReferenceImage }),
     );
     router.push("/play?custom=1");
   };
@@ -1606,6 +1800,8 @@ export default function HomePage() {
           setCustomStyleGuide={setCustomStyleGuide}
           styleOverrides={styleOverrides}
           setStyleOverrides={setStyleOverrides}
+          customStyleRefImage={customStyleRefImage}
+          setCustomStyleRefImage={setCustomStyleRefImage}
         />
       )}
     </div>

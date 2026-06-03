@@ -500,7 +500,11 @@ function PlayInner() {
     const presetId = params.get("preset");
     const isCustom = params.get("custom") === "1";
 
-    let livePayload: { worldSetting: string; styleGuide: string } | null = null;
+    let livePayload: {
+      worldSetting: string;
+      styleGuide: string;
+      styleReferenceImage?: string;
+    } | null = null;
     if (!cardName) {
       if (presetId) {
         const p = PRESETS.find((x) => x.id === presetId);
@@ -513,8 +517,13 @@ function PlayInner() {
               worldSetting: string;
               styleGuide: string;
               audioEnabled?: boolean;
+              styleReferenceImage?: string;
             };
-            livePayload = { worldSetting: parsed.worldSetting, styleGuide: parsed.styleGuide };
+            livePayload = {
+              worldSetting: parsed.worldSetting,
+              styleGuide: parsed.styleGuide,
+              styleReferenceImage: parsed.styleReferenceImage || undefined,
+            };
             // audioEnabled 已在 useState 初始化时反向投射到 muted；这里无需再额外存。
           } catch {
             livePayload = null;
@@ -531,6 +540,11 @@ function PlayInner() {
     type PrebakedFirstAct = StartResponse & {
       worldSetting: string;
       styleGuide: string;
+      // Live /api/start path tags this on after the response (prebaked card
+      // JSONs never have one — they were rendered at build time without any
+      // user-uploaded reference). Carried into Session so /api/scene's painter
+      // anchors the same style image on every subsequent scene.
+      styleReferenceImage?: string;
       cardName?: string;
       cardTitle?: string;
       cardGender?: string;
@@ -554,7 +568,14 @@ function PlayInner() {
           }
           const data = (await r.json()) as StartResponse;
           // Live /api/start doesn't echo ws/sg back — splice in what we sent.
-          return { ...data, worldSetting: livePayload!.worldSetting, styleGuide: livePayload!.styleGuide };
+          // styleReferenceImage is similarly not in StartResponse; tag it on so
+          // the session we build below carries it for every /api/scene call.
+          return {
+            ...data,
+            worldSetting: livePayload!.worldSetting,
+            styleGuide: livePayload!.styleGuide,
+            styleReferenceImage: livePayload!.styleReferenceImage,
+          };
         });
 
     fetchStart
@@ -577,6 +598,7 @@ function PlayInner() {
           ],
           characters: data.characters,
           storyState: data.storyState,
+          styleReferenceImage: data.styleReferenceImage,
         };
         visitedBeatsRef.current = [data.scene.entryBeatId];
         setSession(initial);

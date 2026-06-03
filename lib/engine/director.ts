@@ -327,6 +327,7 @@ export async function directScene(
       styleGuide: session.styleGuide,
       onStageCharacters,
       priorSceneImage: priorSceneReference,
+      styleReferenceImage: session.styleReferenceImage,
     },
     entryBeat,
   );
