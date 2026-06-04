@@ -93,6 +93,43 @@ export type SceneHistoryEntry = {
 };
 
 // ──────────────────────────────────────────────────────────────────────
+//  Writer two-phase split
+//
+//  The Writer runs as TWO LLM calls so scene-image generation can begin
+//  before the dialogue is fully written:
+//    Phase A (WriterPlan) — the minimal skeleton the image pipeline needs:
+//                           sceneSummary + sceneKey + the entry beat's
+//                           on-stage roster + the full cast to design.
+//    Phase B (beats)      — the full beats[] graph + storyStatePatch, written
+//                           to honor the plan, overlapped with image gen.
+//  The Cinematographer + character design + Painter all run off the Plan, so
+//  Phase B's (longer) output is hidden behind the image pipeline.
+// ──────────────────────────────────────────────────────────────────────
+
+export type WriterPlan = {
+  /** 中文 scene synopsis (location + time + mood + key event + opening hook).
+   *  The sole input the Cinematographer composes the establishing shot from. */
+  sceneSummary: string;
+  /** English location+time slug for cross-scene visual continuity. */
+  sceneKey?: string;
+  /** Beat id the player lands on when entering the scene. Phase B must emit a
+   *  beat with this id (reconciled if it doesn't). */
+  entryBeatId: string;
+  /** Every NPC name that appears anywhere in this scene. Drives character
+   *  design (card + portrait + voice) IN PARALLEL with Phase B beat writing, so
+   *  the whole cast is provisioned by the time the scene returns. Phase B may
+   *  only use names from this list (plus the POV "你"). Never includes the player. */
+  cast: string[];
+  /** The entry beat's on-stage roster (who's visible + pose when the player
+   *  lands). Drives the Cinematographer's framing and the entry-beat portraits
+   *  the Painter anchors to. Never includes the POV player. */
+  entryActiveCharacters: BeatActiveCharacter[];
+  /** The entry beat's speaker — an NPC name, "你" (player speaking), or
+   *  undefined for a pure narration/environment entry. Drives shot selection. */
+  entrySpeaker?: string;
+};
+
+// ──────────────────────────────────────────────────────────────────────
 //  Characters & voices (TTS)
 // ──────────────────────────────────────────────────────────────────────
 
