@@ -213,6 +213,19 @@ export function PlayCanvas({
     waitForAudio: false,
   });
 
+  const [pulseActive, setPulseActive] = useState(false);
+
+  useEffect(() => {
+    if (teaserDone) {
+      const timer = setTimeout(() => {
+        setPulseActive(true);
+      }, 1000);
+      return () => clearTimeout(timer);
+    } else {
+      setPulseActive(false);
+    }
+  }, [teaserDone]);
+
   // ── Audio source change ──────────────────────────────────────────────
   // Reset duration when audio source changes; if loading takes too long,
   // unblock the typewriter via timeout so text doesn't stall.
@@ -505,7 +518,7 @@ export function PlayCanvas({
               <span className="text-[9px] smallcaps text-clay-400 tracking-[0.2em] font-sans">
                 ✦ 故 · 事 · 预 · 告 ✦
               </span>
-              <p className={`font-serif leading-[2] text-clay-700 text-[13px] md:text-[15px] italic whitespace-pre-wrap text-left w-full ${teaserDone ? "animate-slow-pulse" : ""}`}>
+              <p className={`font-serif leading-[2] text-clay-700 text-[13px] md:text-[15px] italic whitespace-pre-wrap text-left w-full ${pulseActive ? "animate-slow-pulse" : ""}`}>
                 {typedTeaser}
               </p>
             </div>
