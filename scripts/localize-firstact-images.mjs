@@ -67,14 +67,26 @@ for (const f of files) {
     continue;
   }
 
-  const url = json.imageUrl;
+  // Prefer the live `imageUrl`; fall back to `imageUrlRemote` when this JSON
+  // has already been localized in a previous run (the Runware URL we want to
+  // re-download lives there, not in `imageUrl`).
+  const remote =
+    json.imageUrl && json.imageUrl.startsWith("http")
+      ? json.imageUrl
+      : json.imageUrlRemote;
+  const url = remote;
   if (!url) {
     failed++;
-    console.log(`${name} FAIL: no imageUrl in JSON`);
+    console.log(`${name} FAIL: no Runware URL (imageUrl/imageUrlRemote)`);
     continue;
   }
 
-  if (!FORCE && url.startsWith(PUBLIC_LOCAL_PREFIX) && existsSync(localWebp)) {
+  if (
+    !FORCE &&
+    typeof json.imageUrl === "string" &&
+    json.imageUrl.startsWith(PUBLIC_LOCAL_PREFIX) &&
+    existsSync(localWebp)
+  ) {
     skipped++;
     console.log(`${name} skip (already local)`);
     continue;
@@ -82,39 +94,62 @@ for (const f of files) {
 
   if (!url.startsWith("http")) {
     failed++;
-    console.log(`${name} FAIL: imageUrl not http(s): ${url.slice(0, 60)}`);
+    console.log(`${name} FAIL: Runware URL not http(s): ${url.slice(0, 60)}`);
     continue;
   }
 
+  // Runware URLs have a finite TTL — once they 404, the prebaked first-act
+  // becomes unplayable. Localizing the JSON pointer is the durable fix; the
+  // bytes themselves only need to be re-downloaded when the local webp is
+  // actually missing. If the webp is already on disk (44 of 60 today), skip
+  // the network and just rewrite the JSON to point at it.
+  const localWebpExists = existsSync(localWebp);
+
   const t = Date.now();
   try {
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const buf = Buffer.from(await res.arrayBuffer());
-    bytesIn += buf.length;
+    let outSize;
+    if (localWebpExists && !FORCE) {
+      outSize = statSync(localWebp).size;
+    } else {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const buf = Buffer.from(await res.arrayBuffer());
+      bytesIn += buf.length;
 
-    // Downscale to 1600px long edge (Runware paints at 1792×1024 by default —
-    // the player canvas never needs more than ~1200-1600). Then webp 80.
-    const img = sharp(buf);
-    const meta = await img.metadata();
-    const longEdge = Math.max(meta.width ?? 0, meta.height ?? 0);
-    const resized = longEdge > MAX_EDGE
-      ? img.resize({
-          width: (meta.width ?? 0) >= (meta.height ?? 0) ? MAX_EDGE : undefined,
-          height: (meta.height ?? 0) > (meta.width ?? 0) ? MAX_EDGE : undefined,
-        })
-      : img;
-    await resized.webp({ quality: QUALITY, effort: 5 }).toFile(localWebp);
+      // Downscale to 1600px long edge (Runware paints at 1792×1024 by default —
+      // the player canvas never needs more than ~1200-1600). Then webp 80.
+      const img = sharp(buf);
+      const meta = await img.metadata();
+      const longEdge = Math.max(meta.width ?? 0, meta.height ?? 0);
+      const resized = longEdge > MAX_EDGE
+        ? img.resize({
+            width: (meta.width ?? 0) >= (meta.height ?? 0) ? MAX_EDGE : undefined,
+            height: (meta.height ?? 0) > (meta.width ?? 0) ? MAX_EDGE : undefined,
+          })
+        : img;
+      await resized.webp({ quality: QUALITY, effort: 5 }).toFile(localWebp);
 
-    const outSize = statSync(localWebp).size;
-    bytesOut += outSize;
+      outSize = statSync(localWebp).size;
+      bytesOut += outSize;
+    }
+
     json.imageUrl = localPublicPath;
+    // scene.imageUrl is the same image one level deeper — both fields are
+    // surfaced by /api/start to the play page, so we localize them in lockstep
+    // to keep the JSON self-consistent.
+    if (json.scene && typeof json.scene === "object") {
+      json.scene.imageUrl = localPublicPath;
+    }
     json.imageUrlRemote = url; // keep the Runware URL around for forensics
     writeFileSync(jsonPath, JSON.stringify(json));
     downloaded++;
-    console.log(
-      `${name} ok ${(buf.length / 1024).toFixed(0)} KB → ${(outSize / 1024).toFixed(0)} KB in ${((Date.now() - t) / 1000).toFixed(1)}s`,
-    );
+    if (localWebpExists && !FORCE) {
+      console.log(`${name} ok (webp existed, rewrote JSON only) ${(outSize / 1024).toFixed(0)} KB`);
+    } else {
+      console.log(
+        `${name} ok ${(bytesIn ? "" : "")}→ ${(outSize / 1024).toFixed(0)} KB in ${((Date.now() - t) / 1000).toFixed(1)}s`,
+      );
+    }
   } catch (e) {
     failed++;
     console.log(`${name} FAIL: ${e.message}`);
