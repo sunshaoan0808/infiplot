@@ -172,7 +172,6 @@ export function PlayCanvas({
   fullViewport = false,
   aboveCanvas,
   aboveCanvasLeft,
-  teaserText,
 }: {
   imageUrl: string | null;
   audioBase64: string | null;
@@ -189,7 +188,6 @@ export function PlayCanvas({
   aboveCanvas?: ReactNode;
   // 渲染在图片正上方、左对齐的 slot（画面外、紧贴左上角），与 aboveCanvas 水平镜像。
   aboveCanvasLeft?: ReactNode;
-  teaserText?: string | null;
 }) {
   const imgRef = useRef<HTMLImageElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -208,10 +206,6 @@ export function PlayCanvas({
       targetDurationMs: audioDurationMs,
       waitForAudio: Boolean(audioBase64),
     });
-
-  const { shown: typedTeaser } = useTypewriter(teaserText ?? "", "teaser_reset", {
-    waitForAudio: false,
-  });
 
   // ── Audio source change ──────────────────────────────────────────────
   // Reset duration when audio source changes; if loading takes too long,
@@ -494,35 +488,16 @@ export function PlayCanvas({
         </div>
       ) : (
         <div
-          className="relative aspect-video bg-cream-200 flex flex-col items-center justify-center p-6 md:p-12 text-center"
+          className="relative aspect-video bg-cream-200 flex flex-col items-center justify-center gap-4"
           style={{
             width: placeholderWidth,
             boxShadow: fullViewport ? "none" : SHADOW,
           }}
         >
-          {teaserText ? (
-            <div className="max-w-[85%] md:max-w-[75%] flex flex-col items-center justify-center gap-3.5 md:gap-5 animate-fade-in">
-              <span className="text-[9px] smallcaps text-clay-400 tracking-[0.2em] font-sans">
-                ✦ 故 · 事 · 预 · 告 ✦
-              </span>
-              <p className="font-serif leading-[2] text-clay-700 text-[13px] md:text-[15px] italic whitespace-pre-wrap">
-                {typedTeaser}
-              </p>
-              <div className="mt-2 md:mt-4 flex items-center gap-2.5">
-                <span className="w-1.5 h-1.5 bg-ember-500 rounded-full animate-slow-pulse" />
-                <span className="text-[9px] smallcaps text-clay-400">
-                  正 · 在 · 绘 · 制 · 第 · 一 · 幕
-                </span>
-              </div>
-            </div>
-          ) : (
-            <div className="flex flex-col items-center justify-center gap-4">
-              <div className="w-1.5 h-1.5 bg-clay-500 rounded-full animate-slow-pulse" />
-              <p className="text-[9px] smallcaps text-clay-500 animate-slow-pulse">
-                正 · 在 · 绘 · 制 · 第 · 一 · 幕
-              </p>
-            </div>
-          )}
+          <div className="w-1.5 h-1.5 bg-clay-500 rounded-full animate-slow-pulse" />
+          <p className="text-[9px] smallcaps text-clay-500 animate-slow-pulse">
+            正 · 在 · 绘 · 制 · 第 · 一 · 幕
+          </p>
           {/* 加载占位也挂同一对 slot，让右上 / 左上的操作按钮在第一帧就出现 */}
           {!fullViewport && aboveCanvas && (
             <div className="absolute bottom-full right-0 mb-2 flex items-center gap-2">

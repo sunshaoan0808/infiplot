@@ -402,7 +402,6 @@ function PlayInner() {
   const [error, setError] = useState<string | null>(null);
   const [presentation, setPresentation] = useState(false);
   const [lastExitLabel, setLastExitLabel] = useState<string | null>(null);
-  const [teaserText, setTeaserText] = useState<string | null>(null);
 
   const startedRef = useRef(false);
   const poolRef = useRef<Map<string, PrefetchEntry>>(new Map());
@@ -693,25 +692,6 @@ function PlayInner() {
     if (!cardName && !livePayload) {
       router.replace("/");
       return;
-    }
-
-    if (livePayload) {
-      fetch("/api/teaser", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...getByoHeaders(),
-        },
-        body: JSON.stringify({ worldSetting: livePayload.worldSetting }),
-      })
-        .then(async (r) => {
-          if (!r.ok) return;
-          const data = await r.json();
-          if (data.teaser) {
-            setTeaserText(data.teaser);
-          }
-        })
-        .catch(() => {});
     }
 
     type PrebakedFirstAct = StartResponse & {
@@ -1175,7 +1155,6 @@ function PlayInner() {
           onAdvance={onAdvance}
           onSelectChoice={onSelectChoice}
           fullViewport
-          teaserText={teaserText}
         />
       </div>
     );
@@ -1215,7 +1194,6 @@ function PlayInner() {
           onBackgroundClick={onBackgroundClick}
           onAdvance={onAdvance}
           onSelectChoice={onSelectChoice}
-          teaserText={teaserText}
           aboveCanvas={
             <button
               type="button"
