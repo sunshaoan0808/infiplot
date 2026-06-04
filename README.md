@@ -154,6 +154,10 @@ InfiPlot 会与四类模型供应商通信。**文本（Text）和视觉（Visio
 
 使用推荐的三件套时，每一幕场景的开销主要来自图像生成模型。FLUX.2 [klein] 9B KV 的图像大约 **$0.00078** 一张（1792×1024，4 步，亚秒级）；文本模型使用 `deepseek-v4-flash` 时，成本极低。逐拍点过一个场景是免费的。为了让切换瞬间完成，引擎还会预测式地生成那些你可能选、但最终可能没选的场景 —— 所以真实花费会比你实际看到的场景数略高一些。
 
+**4. 图片代理（可选）**
+
+默认浏览器直连图片供应商，无需任何配置 —— 留空 `NEXT_PUBLIC_IMAGE_PROXY_URL` 即可，完全不受影响。只有当你遇到图片「层层加载」（Chrome 在某些网络下 `ERR_QUIC_PROTOCOL_ERROR` 导致 PNG 逐行渲染）时才需要它：部署一个极小的 Cloudflare Worker，把图片改为服务端转发 + HTTP/2 原子返回。一键部署见 **[infiplot-image-proxy](https://github.com/zonghaoyuan/infiplot-image-proxy)**，然后把它给出的 `workers.dev` 地址填进 `NEXT_PUBLIC_IMAGE_PROXY_URL`。
+
 ---
 
 ## Roadmap

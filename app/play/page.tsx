@@ -40,59 +40,109 @@ const MUTED_STORAGE_KEY = "infiplot:muted";
 const IMAGE_PRELOAD_TIMEOUT_MS = 20000;
 
 // ──────────────────────────────────────────────────────────────────────
-//  Image fetch → blob URL — bulletproof against browser progressive paint.
+//  Two ways an <img> gets its pixels, picked per-URL by shouldProxy():
 //
-//  Why not a plain <img src={cdnUrl}>: Runware CDN returns weak cache headers
-//  (every <img> mount issues a fresh GET — confirmed in DevTools, status 200
-//  not "from disk cache"), so the Image() preload + decode() trick can warm
-//  HTTP cache but the actual <img> still streams bytes from network and
-//  paints row-by-row as they arrive.
+//  1. DIRECT (default — no proxy configured): preload the URL with an
+//     Image() + decode() so the HTTP cache is warm and the bitmap decoded
+//     before React commits, then hand the ORIGINAL URL to <img>. This is the
+//     long-standing behavior; deployers who set no env var get exactly this
+//     and are completely unaffected by the proxy machinery below.
 //
-//  Fix: fetch the bytes ourselves, materialize a blob: URL pointing at the
-//  fully-local copy, and only set the <img src> to that blob: URL. The <img>
-//  never sees a network-backed src, so there is no "字节还在路上" middle state
-//  and no progressive paint is possible. Trade-off: callers MUST revoke the
-//  blob URL when swapping it out, or the bytes leak in JS heap.
+//  2. PROXY (opt-in — NEXT_PUBLIC_IMAGE_PROXY_URL set, host allow-listed):
+//     fetch the bytes through the Cloudflare Worker (which adds CORS and
+//     serves over stable HTTP/2), await the FULL body via .blob(), materialize
+//     a blob: URL over that local copy, and hand THAT to <img>. The <img>
+//     never sees a network-backed src, so there's no "字节还在路上" middle
+//     state and no progressive paint.
+//     Why it matters: Chrome's direct fetch of im.runware.ai sometimes hits
+//     ERR_QUIC_PROTOCOL_ERROR mid-stream, leaving partial PNG bytes that
+//     paint row-by-row. The Worker re-fetches server-to-server (no QUIC
+//     fragility) and serves over HTTP/2 — atomic and reliable. Trade-off:
+//     callers MUST revoke the blob URL when swapping it out (revokeBlobUrlFor)
+//     or the bytes leak in the JS heap.
 //
-//  Failure mode: on network error / timeout we fall back to the original CDN
-//  URL so the <img> still attempts to render (with possible progressive paint
-//  — same as pre-fix behavior, never worse).
-//
-//  Data URIs (MOCK_IMAGE mode) are already local; passed through unchanged.
+//  Data URIs (MOCK_IMAGE mode) are already local; passed through unchanged
+//  on both paths. blobUrlCache is keyed by the ORIGINAL URL either way.
 // ──────────────────────────────────────────────────────────────────────
 
-// Optional Cloudflare Workers proxy in front of Runware. Reason: Chrome's
-// direct fetch of im.runware.ai sometimes hits ERR_QUIC_PROTOCOL_ERROR
-// mid-stream, leaving the browser with partial PNG bytes that render
-// progressively. The Worker re-fetches Runware server-to-server (no QUIC
-// fragility) and serves the bytes over HTTP/2 — atomic and reliable.
-//
-// Inlined by Next.js at build time. Empty / unset → fall back to direct
-// fetch of the original URL (works fine when Runware's CDN cooperates,
-// and on browsers/networks where QUIC isn't flaky).
+// Direct-path preload: decode the URL in memory before committing to React
+// state, so when the <img> mounts the cache is warm and first paint is
+// instant. Errors / timeouts resolve quietly — better a broken <img> than a
+// hung play loop. (im.runware.ai sends no CORS header, so we can't fetch()
+// its bytes here; warming + decoding is the most the direct path can do.)
+function preloadImage(url: string): Promise<void> {
+  return new Promise<void>((resolve) => {
+    const img = new Image();
+    const done = () => resolve();
+    const timer = setTimeout(done, IMAGE_PRELOAD_TIMEOUT_MS);
+    img.onload = () => {
+      clearTimeout(timer);
+      // .decode() forces the bitmap to be fully decoded before we proceed —
+      // without it, a slow decode could still cause a flash on first paint.
+      img.decode().then(done, done);
+    };
+    img.onerror = () => {
+      clearTimeout(timer);
+      done();
+    };
+    img.src = url;
+  });
+}
+
+// Opt-in Cloudflare Workers proxy (deploy your own — see the link in README).
+// Inlined by Next.js at build time. Empty / unset → no proxy → every URL takes
+// the direct path above, exactly as if this feature didn't exist.
 const IMAGE_PROXY_BASE = (
   process.env.NEXT_PUBLIC_IMAGE_PROXY_URL ?? ""
 ).replace(/\/$/, "");
 
+// Hostnames eligible for the proxy. Default: Runware's CDN only. Deployers who
+// point IMAGE_BASE_URL at another provider can opt that provider's image host
+// in via NEXT_PUBLIC_IMAGE_PROXY_ALLOWED_HOSTS (comma-separated). Inlined at
+// build time. Anything not on this list stays on the direct path.
+const IMAGE_PROXY_ALLOWED_HOSTS = (
+  process.env.NEXT_PUBLIC_IMAGE_PROXY_ALLOWED_HOSTS ?? "im.runware.ai"
+)
+  .split(",")
+  .map((h) => h.trim().toLowerCase())
+  .filter(Boolean);
+
+// Route a URL through the proxy only when a proxy is configured AND it's a
+// remote http(s) image on an allow-listed host. data: URIs (MOCK_IMAGE) are
+// already local; malformed URLs and any other origin fall through to direct.
+function shouldProxy(originalUrl: string): boolean {
+  if (!IMAGE_PROXY_BASE) return false;
+  if (originalUrl.startsWith("data:")) return false;
+  try {
+    const { protocol, hostname } = new URL(originalUrl);
+    if (protocol !== "https:" && protocol !== "http:") return false;
+    return IMAGE_PROXY_ALLOWED_HOSTS.includes(hostname.toLowerCase());
+  } catch {
+    return false;
+  }
+}
+
 function proxiedImageUrl(originalUrl: string): string {
-  if (!IMAGE_PROXY_BASE) return originalUrl;
-  // Data URIs (MOCK_IMAGE) are already local; proxy is irrelevant.
-  if (originalUrl.startsWith("data:")) return originalUrl;
-  // Only proxy real Runware CDN URLs — keeps the Worker's whitelist tight
-  // and dodges the proxy hop for any other origin we might add later.
-  if (!originalUrl.startsWith("https://im.runware.ai/")) return originalUrl;
   return `${IMAGE_PROXY_BASE}/?url=${encodeURIComponent(originalUrl)}`;
 }
 
 async function fetchImageAsBlobUrl(url: string): Promise<string> {
   if (url.startsWith("data:")) return url;
-  // Cache keys (blobUrlCache) stay on the original Runware URL — the proxy
-  // is an internal fetch detail, callers shouldn't need to think about it.
-  const fetchUrl = proxiedImageUrl(url);
+
+  // Direct path (default): warm the cache + decode, hand back the original
+  // URL. No fetch() — im.runware.ai has no CORS, so fetch().blob() would throw.
+  if (!shouldProxy(url)) {
+    await preloadImage(url);
+    return url;
+  }
+
+  // Proxy path (opt-in): fetch through the Worker and materialize a blob: URL.
+  // On error / timeout fall back to the original URL so <img> still tries
+  // (possible progressive paint — same as the direct path, never worse).
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), IMAGE_PRELOAD_TIMEOUT_MS);
   try {
-    const r = await fetch(fetchUrl, { signal: ctrl.signal });
+    const r = await fetch(proxiedImageUrl(url), { signal: ctrl.signal });
     if (!r.ok) return url;
     const blob = await r.blob();
     return URL.createObjectURL(blob);
@@ -642,9 +692,9 @@ function PlayInner() {
 
     fetchStart
       .then(async (data) => {
-        // Pull the full image bytes into a local blob: URL before committing
-        // to state. The <img> then mounts pointed at a fully-local blob, which
-        // the browser paints atomically — no row-by-row "层层加载".
+        // Resolve to a paintable src before committing to state. Proxy path:
+        // a fully-local blob: URL the browser paints atomically (no row-by-row
+        // "层层加载"). Direct path (default): the preloaded original URL.
         const blobUrl = await getOrCreateBlobUrl(data.imageUrl);
         lastImageOriginalUrlRef.current = data.imageUrl;
 
@@ -745,9 +795,9 @@ function PlayInner() {
       // prefetched scenes the speculative getOrCreateBlobUrl in
       // prefetchScenePath already has this in flight (often resolved), so
       // this is a near-instant cache lookup. For cold transitions we eat the
-      // CDN download time under the "transitioning" overlay — same cost as
-      // before, but the <img> never sees a network-backed src and therefore
-      // can't paint progressively.
+      // CDN download / preload time under the "transitioning" overlay. Proxy
+      // path: the <img> then gets a fully-local blob (no progressive paint);
+      // direct path (default): the preloaded original URL.
       const blobUrl = await getOrCreateBlobUrl(result.imageUrl);
       // Revoke the previous scene's blob (no longer rendered) to release JS
       // heap. New scene's original URL takes its place as "current".

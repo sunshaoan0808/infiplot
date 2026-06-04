@@ -155,6 +155,10 @@ Where to set them (see `.env.example` for the exact shape):
 
 With the recommended trio, each scene's cost comes mainly from the image generation model. The FLUX.2 [klein] 9B KV image is roughly **\$0.00078** per scene (1792×1024, 4 steps, sub-second); the text model uses `deepseek-v4-flash`, so text costs are negligible by comparison. Tapping through a scene's beats is free. To keep transitions instant, the engine also pre-generates scenes you might pick but ultimately don't — so real spend runs somewhat higher than the scenes you actually see.
 
+**4. Image proxy (optional)**
+
+By default the browser fetches images directly from the provider — no setup needed; leave `NEXT_PUBLIC_IMAGE_PROXY_URL` blank and you're completely unaffected. You only want this if you hit progressive "top-to-bottom" image loading (Chrome's `ERR_QUIC_PROTOCOL_ERROR` on some networks paints partial PNGs row by row): deploy a tiny Cloudflare Worker that re-fetches images server-side and serves them atomically over HTTP/2. One-click deploy at **[infiplot-image-proxy](https://github.com/zonghaoyuan/infiplot-image-proxy)**, then paste the `workers.dev` URL it prints into `NEXT_PUBLIC_IMAGE_PROXY_URL`.
+
 ---
 
 ## Roadmap
