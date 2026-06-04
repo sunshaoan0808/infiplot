@@ -6,25 +6,45 @@ export async function interpretClick(
   imageBase64: string,
   prompt: string,
 ): Promise<string> {
+  // Wrap the raw base64 in a PNG data URL — the Canvas annotator on the
+  // client encodes as PNG. analyzeImageDataUrl handles the actual request.
+  return analyzeImageDataUrl(
+    config,
+    `data:image/png;base64,${imageBase64}`,
+    prompt,
+    { responseFormat: "json_object" },
+  );
+}
+
+/**
+ * General single-image vision call. Accepts a complete data URL (preserves
+ * the source mime type, e.g. webp/jpeg) and lets the caller opt out of
+ * `response_format: json_object` for free-form text responses.
+ */
+export async function analyzeImageDataUrl(
+  config: ProviderConfig,
+  imageDataUrl: string,
+  prompt: string,
+  opts: { responseFormat?: "json_object" | "text" } = {},
+): Promise<string> {
   const url = `${config.baseUrl.replace(/\/$/, "")}/chat/completions`;
 
-  const body = {
+  const body: Record<string, unknown> = {
     model: config.model,
     messages: [
       {
         role: "user",
         content: [
           { type: "text", text: prompt },
-          {
-            type: "image_url",
-            image_url: { url: `data:image/png;base64,${imageBase64}` },
-          },
+          { type: "image_url", image_url: { url: imageDataUrl } },
         ],
       },
     ],
     temperature: 0.2,
-    response_format: { type: "json_object" },
   };
+  if (opts.responseFormat === "json_object") {
+    body.response_format = { type: "json_object" };
+  }
 
   const timeoutCtrl = new AbortController();
   const timeoutId = setTimeout(() => timeoutCtrl.abort(), 60_000);

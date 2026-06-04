@@ -2,6 +2,14 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import { track } from "@/lib/analytics";
+import {
+  ART_STYLES,
+  GENDERS,
+  PACINGS,
+  PLOT_STYLES,
+  type Gender,
+} from "@/lib/options";
 
 /* ============================================================================
    InfiPlot · 首页（编辑式视觉风格 · 居中构图，呼应低保真原型）
@@ -19,8 +27,6 @@ import { useEffect, useRef, useState } from "react";
    - 项目介绍（题跋式排版）
    ========================================================================== */
 
-
-type Gender = "男性向" | "女性向";
 
 const EXAMPLE_PHRASES: Record<Gender, string[]> = {
   男性向: [
@@ -44,82 +50,30 @@ type Opt = {
 };
 
 const OPTS: Opt[] = [
-  { label: "性向", items: ["男性向", "女性向"] },
-  {
-    label: "绘画风格",
-    modal: true,
-    items: [
-      "自动",
-      "古典厚涂油画 (学术奇幻)",
-      "极简中国水墨 (Image 0参考升级版)",
-      "浮世绘木刻 (美人画升级)",
-      "莫高窟壁画风 (敦煌学)",
-      "细密画 (波斯/伊斯兰风)",
-      "镶嵌画 (拜占庭/马赛克)",
-      "彩绘玻璃 (哥特风)",
-      "吉卜力治愈手绘 (Image 4参考)",
-      "京阿尼细腻日常 (Image 5参考)",
-      "新海诚唯美光影 (Image 2参考)",
-      "赛博朋克 / 赛璐珞二次元",
-      "Galgame CG 梦幻光影",
-      "3D 动漫电影质感",
-      "蒸汽波 (Vaporwave) 赛璐珞",
-      "极简矢量插画 (Minimalist Vector)",
-      "低多边形 (Low Poly)",
-      "双重曝光 (Double Exposure)",
-      "波普艺术 (Pop Art)",
-      "故障艺术 (Glitch Art)",
-      "瑞士平面设计 (Typography-Centric)",
-      "剪纸艺术 (Papercut)",
-      "科幻：太阳朋克 (Solar Punk)",
-      "奇幻：爱手艺 (Lovecraftian Horror)",
-      "现代惊悚：霓虹剪影 (Urban Noir)",
-      "温馨推理：英式村庄 (Cozy Mystery)",
-      "哥特言情：庄园废墟 (Gothic Romance)",
-      "格林童话：暗黑森林 (Fairytale Noir)",
-      "废土科幻 (Post-Apocalyptic)",
-      "都市幻想：隐形世界 (Urban Fantasy)",
-      "文字与图形：抽象主义 (BookPosterLayout)"
-    ],
-  },
-  { label: "剧情风格", items: ["平铺直叙", "多线转折", "悬疑烧脑", "治愈日常"], defaultIndex: 1 },
+  { label: "性向", items: [...GENDERS] },
+  { label: "绘画风格", modal: true, items: [...ART_STYLES] },
+  { label: "剧情风格", items: [...PLOT_STYLES], defaultIndex: 1 },
   { label: "语音配音", items: ["关闭", "开启"], defaultIndex: 1 },
-  { label: "内容节奏", items: ["慢热细腻", "紧凑爽快"], defaultIndex: 1 },
+  { label: "内容节奏", items: [...PACINGS], defaultIndex: 1 },
 ];
 
 type StoryContent = { title: string; outline: string; style: string; tags: string[] };
 
 const STYLE_MAP: Record<string, string> = {
-  "古典厚涂油画 (学术奇幻)": "Dark fantasy oil painting style, grand clockwork steampunk city built into a mountain range at twilight, immense gothic spires with glowing green lamps, complex gears and platforms. Richly detailed, impasto texture, dramatic academic lighting. Horizontal cinematic composition.",
-  "极简中国水墨 (Image 0参考升级版)": "Minimalist Chinese ink wash style, vertical sea of clouds and distant jagged peaks. Ethereal, sparse composition with poetic brushstrokes, monochrome palette with subtle blue hints. Large blank mist area for copy space.",
-  "浮世绘木刻 (美人画升级)": "Ukiyo-e woodblock print style, majestic waves and Mount Fuji visible through cherry branches. Bold outlines, flat colors with paper texture, ancient and mystical atmosphere.",
-  "莫高窟壁画风 (敦煌学)": "Dunhuang fresco style, celestial patterns, stylized lotus flowers and floating geometric patterns on an aged stucco wall. Muted, oxidized mineral colors, delicate line art, historical and divine ambiance.",
-  "细密画 (波斯/伊斯兰风)": "Persian miniature style, ornate vertical tiled garden pavilion surrounded by tall cypress trees and complex geometric mosaics. High detail, jewel-like colors, flattened perspective, decorative borders.",
-  "镶嵌画 (拜占庭/马赛克)": "Byzantine mosaic style, highly detailed mosaic pattern of glittering gold and deep blue tiles, spiritual and ancient feel, flat decorative background.",
-  "彩绘玻璃 (哥特风)": "Stained glass style, tall gothic archways and trefoils. Vibrant, translucent jewel colors, bold black leading lines. The image looks like an ancient cathedral stained glass window panel.",
-  "吉卜力治愈手绘 (Image 4参考)": "Ghibli hand-painted watercolor style, a vast wildflower meadow hill under a bright blue sky with fluffy clouds, a fantastical airship flying in the distance. Natural daylight, soft washes, nostalgic feel.",
-  "京阿尼细腻日常 (Image 5参考)": "KyoAni anime style, fine line art, warm indoor lighting contrasting the cool moonlight outside, rain streaks on a tall window. Deep emotional atmosphere, delicate light and shadow reflections.",
-  "新海诚唯美光影 (Image 2参考)": "Makoto Shinkai anime style, hyper-detailed, towering dramatic night starry sky with a descending comet trail, glowing cherry tree branches in the foreground. Brilliant lighting effects, vivid colors.",
-  "赛博朋克 / 赛璐珞二次元": "Cyberpunk anime style, cel-shaded animation, rainy night streets of a dense neon-drenched futuristic megacity with towering skyscrapers. Hard edges, high saturation, sharp contrast.",
-  "Galgame CG 梦幻光影": "High-quality Galgame CG illustration, dreamlike beach scene at sunset with sparkling waves rolling in. Pastel colors, bloom lighting, clean composition, soft focus.",
-  "3D 动漫电影质感": "Cinematic 3D animated film style, a rustic wooden hangar at sunrise with volumetric lighting, warm golden hour colors, deep textures, cinematic composition.",
-  "蒸汽波 (Vaporwave) 赛璐珞": "Vaporwave aesthetic, anime style, a geometric pink grid floor leading to a palm tree silhouette, neon pink sunset over a purple ocean in the background. Glitch effects, retro pastel colors.",
-  "极简矢量插画 (Minimalist Vector)": "Minimalist vector illustration style, geometric dunes, flat warm colors, clean lines under a massive rising sun, elegant minimalist composition.",
-  "低多边形 (Low Poly)": "Low poly art style, crystalline formations on a high mountain ridge under a towering, faceted starry night sky. Sharp polygon edges, ambient cool colors.",
-  "双重曝光 (Double Exposure)": "Digital double exposure portrait style, forest trees and a cascading waterfall double exposed, high contrast black and white composition, elegant and moody atmosphere.",
-  "波普艺术 (Pop Art)": "Pop Art style illustration, bold comic book dot patterns, halftone screens, loud speech bubbles, bold black outlines, high-saturation contrasting colors.",
-  "故障艺术 (Glitch Art)": "Glitch art style, colorful data corruption, pixel sorting, and digital artifacts in cyan, magenta, and yellow. Cybernetic, high-tech and moody atmosphere.",
-  "瑞士平面设计 (Typography-Centric)": "Modern Swiss graphic design style, vertical minimalist composition, bold geometric grids, red, black, and white flat color blocks.",
-  "剪纸艺术 (Papercut)": "Multilayered papercut art style, 3D landscape of a deep forest and a fairytale castle, made of staggered paper layers with intricate cutouts. Backlighting, soft shadows.",
-  "科幻：太阳朋克 (Solar Punk)": "Solar Punk art style, a sustainable futuristic city integrated with vertical gardens and green balconies, clean solar panels and wind turbines, bright optimistic sunlight.",
-  "奇幻：爱手艺 (Lovecraftian Horror)": "Dark cosmic horror illustration, desolate rocky shore, towering ancient eldritch clouds descending from a stormy sky. Moody, muted cool colors, visible brushstrokes.",
-  "现代惊悚：霓虹剪影 (Urban Noir)": "Modern urban noir, wet narrow alleyway under a vertical buzzing neon sign, dark puddles, high contrast, cinematic noir lighting, deep shadows.",
-  "温馨推理：英式村庄 (Cozy Mystery)": "Cozy mystery book cover illustration, a charming, warm English village scene at night with thatched roofs, snow falling, and warm bookstore lights.",
-  "哥特言情：庄园废墟 (Gothic Romance)": "Gothic romance illustration, desolate moonlit ruins of a grand gothic manor on a foggy cliff, misty atmosphere, melancholic blue and grey tones.",
-  "格林童话：暗黑森林 (Fairytale Noir)": "Dark fairytale illustration, massive ancient forest with towering twisted claw-like trees. Grimm's style, classical woodcut illustration, mood of awe and dread.",
-  "废土科幻 (Post-Apocalyptic)": "Post-apocalyptic landscape, vast desert wasteland with the rusted remains of an overgrown highway and ruined skyscrapers under a dusty orange sunset sky.",
-  "都市幻想：隐形世界 (Urban Fantasy)": "Urban fantasy concept art, a hidden glowing magical pathway underneath a busy modern pedestrian bridge in a rain-streaked metropolitan city, magical blue sparks.",
-  "文字与图形：抽象主义 (BookPosterLayout)": "Abstract geometric poster layout, minimalist line-art integrated into a vertical arrangement of intersecting lines, circles, and curves in a gradient of emerald green and deep blue."
+  "古典厚涂油画": "Dark fantasy oil painting style, grand clockwork steampunk city built into a mountain range at twilight, immense gothic spires with glowing green lamps, complex gears and platforms. Richly detailed, impasto texture, dramatic academic lighting. Horizontal cinematic composition.",
+  "极简中国水墨": "Minimalist Chinese ink wash style, vertical sea of clouds and distant jagged peaks. Ethereal, sparse composition with poetic brushstrokes, monochrome palette with subtle blue hints. Large blank mist area for copy space.",
+  "浮世绘木刻": "Ukiyo-e woodblock print style, majestic waves and Mount Fuji visible through cherry branches. Bold outlines, flat colors with paper texture, ancient and mystical atmosphere.",
+  "莫高窟壁画": "Dunhuang fresco style, celestial patterns, stylized lotus flowers and floating geometric patterns on an aged stucco wall. Muted, oxidized mineral colors, delicate line art, historical and divine ambiance.",
+  "波斯细密画": "Persian miniature style, ornate vertical tiled garden pavilion surrounded by tall cypress trees and complex geometric mosaics. High detail, jewel-like colors, flattened perspective, decorative borders.",
+  "吉卜力治愈手绘": "Ghibli hand-painted watercolor style, a vast wildflower meadow hill under a bright blue sky with fluffy clouds, a fantastical airship flying in the distance. Natural daylight, soft washes, nostalgic feel.",
+  "京阿尼细腻日常": "KyoAni anime style, fine line art, warm indoor lighting contrasting the cool moonlight outside, rain streaks on a tall window. Deep emotional atmosphere, delicate light and shadow reflections.",
+  "新海诚唯美光影": "Makoto Shinkai anime style, hyper-detailed, towering dramatic night starry sky with a descending comet trail, glowing cherry tree branches in the foreground. Brilliant lighting effects, vivid colors.",
+  "Galgame CG": "High-quality Galgame CG illustration, dreamlike beach scene at sunset with sparkling waves rolling in. Pastel colors, bloom lighting, clean composition, soft focus.",
+  "3D 动漫电影": "Cinematic 3D animated film style, a rustic wooden hangar at sunrise with volumetric lighting, warm golden hour colors, deep textures, cinematic composition.",
+  "赛博朋克": "Cyberpunk anime style, cel-shaded animation, rainy night streets of a dense neon-drenched futuristic megacity with towering skyscrapers. Hard edges, high saturation, sharp contrast.",
+  "蒸汽波": "Vaporwave aesthetic, anime style, a geometric pink grid floor leading to a palm tree silhouette, neon pink sunset over a purple ocean in the background. Glitch effects, retro pastel colors.",
+  "哥特庄园": "Gothic romance illustration, desolate moonlit ruins of a grand gothic manor on a foggy cliff, misty atmosphere, melancholic blue and grey tones.",
+  "废土科幻": "Post-apocalyptic landscape, vast desert wasteland with the rusted remains of an overgrown highway and ruined skyscrapers under a dusty orange sunset sky.",
 };
 
 /* 每个性向 24 篇预设剧情（与封面 /home/{m|f}{i}.webp 按索引一一对应）。
@@ -915,14 +869,34 @@ function StyleModal({
   value,
   onPick,
   onClose,
+  customStyleGuide,
+  setCustomStyleGuide,
+  styleOverrides,
+  setStyleOverrides,
+  customStyleRefImage,
+  setCustomStyleRefImage,
 }: {
   items: string[];
   value: number;
   onPick: (i: number) => void;
   onClose: () => void;
+  customStyleGuide: string;
+  setCustomStyleGuide: (s: string) => void;
+  styleOverrides: Record<string, string>;
+  setStyleOverrides: (o: Record<string, string>) => void;
+  customStyleRefImage: string;
+  setCustomStyleRefImage: (s: string) => void;
 }) {
   const [q, setQ] = useState("");
   const [shown, setShown] = useState(false);
+  // Inline editing：editingIdx === i 时该卡片的 prompt 框变成可编辑 textarea。
+  // 列表保持原位（不跳新页面），其他卡片继续可见——用户随时可以取消并切到别处。
+  const [editingIdx, setEditingIdx] = useState<number | null>(null);
+  const [draft, setDraft] = useState("");
+  // 上传 / 解析参考图的瞬时状态——失败/进行中提示只在此次弹窗内可见。
+  const [parsing, setParsing] = useState(false);
+  const [parseError, setParseError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
     const id = requestAnimationFrame(() => setShown(true));
     return () => cancelAnimationFrame(id);
@@ -931,7 +905,130 @@ function StyleModal({
     setShown(false);
     setTimeout(onClose, 280);
   };
-  const list = items.map((name, i) => ({ name, i })).filter((x) => x.name.includes(q.trim()));
+  const startEditing = (i: number, currentPrompt: string) => {
+    setEditingIdx(i);
+    setDraft(currentPrompt);
+  };
+  const cancelEditing = () => {
+    setEditingIdx(null);
+    setDraft("");
+  };
+  const saveEditing = () => {
+    if (editingIdx === null) return;
+    const targetName = items[editingIdx];
+    const t = draft.trim();
+    if (!targetName || !t) return;
+    if (targetName === "自定义") {
+      setCustomStyleGuide(t);
+    } else {
+      // STYLE_MAP 这个 source-of-truth 不动；只往 in-memory overrides 写一条。
+      setStyleOverrides({ ...styleOverrides, [targetName]: t });
+    }
+    onPick(editingIdx);
+    setEditingIdx(null);
+    close();
+  };
+  const resetOverride = (name: string) => {
+    const next = { ...styleOverrides };
+    delete next[name];
+    setStyleOverrides(next);
+    setDraft(STYLE_MAP[name] ?? "");
+  };
+
+  // 客户端把上传的图片缩到 512px 长边 + webp(0.85)，base64 通常落在 30-80KB。
+  // 必须客户端做：(1) 上传 / 后续 /api/scene 都会带这串，包不能太大；
+  //              (2) Runware referenceImages 支持 base64，无需另外加 upload 端点。
+  const resizeImageToDataUrl = async (file: File): Promise<string> => {
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve(String(r.result));
+      r.onerror = () => reject(new Error("读取文件失败"));
+      r.readAsDataURL(file);
+    });
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const i = new Image();
+      i.onload = () => resolve(i);
+      i.onerror = () => reject(new Error("无法解码图片"));
+      i.src = dataUrl;
+    });
+    const MAX_DIM = 512;
+    const scale = Math.min(1, MAX_DIM / Math.max(img.width, img.height));
+    const w = Math.round(img.width * scale);
+    const h = Math.round(img.height * scale);
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("Canvas 2D context unavailable");
+    ctx.drawImage(img, 0, 0, w, h);
+    // webp 比 jpeg 体积更小一些；浏览器全支持。降级到 jpeg 作为兜底。
+    let out = canvas.toDataURL("image/webp", 0.85);
+    if (!out.startsWith("data:image/webp")) {
+      out = canvas.toDataURL("image/jpeg", 0.85);
+    }
+    return out;
+  };
+
+  const handleUploadStyleImage = async (file: File) => {
+    setParseError(null);
+    if (!file.type.startsWith("image/")) {
+      setParseError("只支持图片文件");
+      return;
+    }
+    setParsing(true);
+    try {
+      const resized = await resizeImageToDataUrl(file);
+      const res = await fetch("/api/parse-style-image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imageDataUrl: resized }),
+      });
+      if (!res.ok) {
+        const j = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(j.error ?? `${res.status}`);
+      }
+      const data = (await res.json()) as { stylePrompt: string };
+      // 收到 AI 解析后的 prompt → 覆盖正在编辑的 draft + 持久化参考图。
+      // 用户事后还可以手动改 draft（仍是 textarea）。
+      setDraft(data.stylePrompt);
+      setCustomStyleRefImage(resized);
+      track("style_image_upload", { ok: true });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "解析失败";
+      setParseError(msg);
+      track("style_image_upload", { ok: false });
+    } finally {
+      setParsing(false);
+    }
+  };
+
+  const removeStyleRefImage = () => {
+    setCustomStyleRefImage("");
+    setParseError(null);
+  };
+  // 标题取去掉括号后缀的"主名"——括号里的英文 / 「Image N参考」之类的脚注
+  // 在标题位上显示噪声太大，挪到下方 prompt 行也已经覆盖到了。两种括号都
+  // 兼容（中文「（）」和英文「()」）。
+  const stripSuffix = (s: string) => s.replace(/\s*[（(].*?[)）]\s*$/, "");
+  const q2 = q.trim();
+  const list = items
+    .map((name, i) => {
+      const base = STYLE_MAP[name] ?? "";
+      const override = styleOverrides[name];
+      return {
+        name,
+        title: stripSuffix(name),
+        // 列表里展示的是「有效 prompt」——优先 override，让用户看到自己改过的版本
+        prompt: override ?? base,
+        hasOverride: typeof override === "string" && override.length > 0,
+        i,
+      };
+    })
+    .filter((x) => {
+      if (!q2) return true;
+      const hay = (x.title + " " + x.name + " " + x.prompt).toLowerCase();
+      return hay.includes(q2.toLowerCase());
+    });
   return (
     <div
       onMouseDown={close}
@@ -943,7 +1040,7 @@ function StyleModal({
       <div
         onMouseDown={(e) => e.stopPropagation()}
         className={
-          "flex w-[1000px] max-w-[94vw] max-h-[86vh] flex-col overflow-hidden rounded-sm border border-clay-900/15 bg-cream-50 shadow-2xl shadow-clay-900/25 transition-all duration-300 " +
+          "flex w-[860px] max-w-[94vw] max-h-[86vh] flex-col overflow-hidden rounded-sm border border-clay-900/15 bg-cream-50 shadow-2xl shadow-clay-900/25 transition-all duration-300 " +
           (shown ? "opacity-100 scale-100" : "opacity-0 scale-95")
         }
       >
@@ -951,14 +1048,14 @@ function StyleModal({
           <div className="flex flex-col">
             <span className="font-serif text-xl md:text-2xl text-clay-900">选择绘画风格</span>
             <span className="text-[11px] text-clay-500 mt-1 tracking-wide">
-              默认「自动」· 由模型根据 prompt 判断风格
+              默认「自动」· 点 prompt 框旁的 ✎ 可在该风格基础上修改（默认 prompt 不会被覆盖）
             </span>
           </div>
           <div className="relative ml-auto w-[280px] max-w-[46vw]">
             <input
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              placeholder="搜索风格…"
+              placeholder="搜索风格 / prompt…"
               autoFocus
               className="h-10 w-full rounded-sm border border-clay-900/15 bg-cream-100 pl-4 pr-10 font-sans text-sm text-clay-900 outline-none transition-colors focus:border-ember-500 placeholder:text-clay-400"
             />
@@ -973,27 +1070,296 @@ function StyleModal({
             <i className="fa-solid fa-xmark" />
           </button>
         </div>
-        <div className="grid grid-cols-2 gap-3 overflow-y-auto px-6 py-6 md:grid-cols-4 md:gap-4 md:px-8">
-          {list.map(({ name, i }) => (
-            <button
-              key={i}
-              type="button"
-              onClick={() => {
-                onPick(i);
-                close();
-              }}
-              className={
-                "flex h-20 items-center justify-center rounded-sm border px-3 text-center transition-all " +
-                (i === value
-                  ? "border-ember-500 bg-ember-500/5 text-ember-500"
-                  : "border-clay-900/12 text-clay-700 hover:border-clay-900/35 hover:bg-cream-100")
-              }
-            >
-              <span className="font-serif text-base md:text-lg">{name}</span>
-            </button>
-          ))}
+        <div className="flex flex-col gap-2 overflow-y-auto px-4 py-5 md:px-6 md:py-6">
+          {list.map(({ name, title, prompt, hasOverride, i }) => {
+            const isCustom = name === "自定义";
+            const selected = i === value;
+            const editable = isCustom || Boolean(STYLE_MAP[name]);
+            const isEditing = editingIdx === i;
+            return (
+              <div
+                key={i}
+                onClick={(e) => {
+                  // 编辑态下：让点击事件落在 textarea/按钮上即可，不要冒泡触发"选中关闭"。
+                  // 非编辑态下：点卡片选中此风格（自定义项点卡片直接进编辑）。
+                  if (isEditing) return;
+                  const tag = (e.target as HTMLElement).tagName;
+                  if (tag === "BUTTON" || tag === "TEXTAREA" || tag === "I") return;
+                  if (isCustom) {
+                    startEditing(i, customStyleGuide);
+                  } else {
+                    onPick(i);
+                    close();
+                  }
+                }}
+                className={
+                  "flex items-start gap-4 rounded-sm border px-3 py-3 md:px-4 md:py-3.5 text-left transition-all " +
+                  (isEditing
+                    ? "border-ember-500 bg-cream-50 cursor-default"
+                    : selected
+                      ? "border-ember-500 bg-ember-500/5 cursor-pointer"
+                      : "border-clay-900/12 hover:border-clay-900/35 hover:bg-cream-100 cursor-pointer")
+                }
+              >
+                <span
+                  aria-hidden
+                  className={
+                    "flex h-12 w-12 shrink-0 items-center justify-center rounded-sm border text-base " +
+                    (isCustom
+                      ? "border-ember-500/40 bg-ember-500/10 text-ember-500"
+                      : "border-clay-900/10 bg-cream-100 text-clay-400")
+                  }
+                >
+                  <i
+                    className={
+                      isCustom ? "fa-solid fa-pen-to-square" : "fa-regular fa-image"
+                    }
+                  />
+                </span>
+                <div className="flex min-w-0 flex-1 flex-col">
+                  {/* 标题（标题永远不可编辑） */}
+                  <span
+                    className={
+                      "font-serif text-base md:text-lg leading-snug flex items-center gap-2 " +
+                      (selected || isEditing ? "text-ember-500" : "text-clay-900")
+                    }
+                  >
+                    {isCustom ? "自定义 prompt" : title}
+                    {hasOverride && !isEditing && (
+                      <span
+                        className="rounded-sm border border-ember-500/40 bg-ember-500/10 px-1.5 py-0.5 font-sans text-[10px] tracking-wide text-ember-500"
+                        title="你修改过这条 prompt（仅本次会话生效，默认 prompt 不变）"
+                      >
+                        已改
+                      </span>
+                    )}
+                    {isCustom && customStyleRefImage && !isEditing && (
+                      <span
+                        className="inline-flex items-center gap-1 rounded-sm border border-ember-500/40 bg-ember-500/10 px-1.5 py-0.5 font-sans text-[10px] tracking-wide text-ember-500"
+                        title="参考图已附带——每一幕画师都会参考这张图"
+                      >
+                        <i className="fa-regular fa-image text-[9px]" />
+                        附参考图
+                      </span>
+                    )}
+                  </span>
+
+                  {/* 「自动」语义就是「让 AI 自己判断画风」，没有 prompt 可显示也无从编辑；
+                      标题下方直接放一句解释，不渲染空文本框 / 铅笔。 */}
+                  {name === "自动" ? (
+                    <span className="font-sans text-[12px] md:text-[13px] leading-relaxed text-clay-500 mt-1">
+                      由 AI 依据世界观自动选择合适画风（无需手动指定 prompt）
+                    </span>
+                  ) : /* prompt 区域：非编辑态是看起来像文本框的只读容器；编辑态是真的 textarea */
+                  isEditing ? (
+                    <div className="mt-1.5 flex flex-col gap-2">
+                      {/* 自定义卡专属：上传画风参考图。上传后会：(1) 用 vision LLM
+                          解析成 prompt 覆盖到下方 textarea；(2) 图片本身随会话送到
+                          画师，每幕都作为 reference 锚定画风。 */}
+                      {isCustom && (
+                        <div
+                          onClick={(e) => e.stopPropagation()}
+                          className="flex flex-col gap-2"
+                        >
+                          <input
+                            ref={fileInputRef}
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={(e) => {
+                              const f = e.target.files?.[0];
+                              if (f) handleUploadStyleImage(f);
+                              // reset 让同一文件重选能再次触发 onChange
+                              if (fileInputRef.current) fileInputRef.current.value = "";
+                            }}
+                          />
+                          {customStyleRefImage ? (
+                            <div className="flex items-center gap-3 rounded-sm border border-clay-900/12 bg-cream-100 px-3 py-2.5">
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img
+                                src={customStyleRefImage}
+                                alt="画风参考图"
+                                className="h-14 w-14 shrink-0 rounded-sm border border-clay-900/10 object-cover"
+                              />
+                              <div className="flex min-w-0 flex-1 flex-col">
+                                <span className="font-sans text-[12px] text-clay-900">
+                                  <i className="fa-solid fa-check mr-1.5 text-ember-500" />
+                                  参考图已上传
+                                </span>
+                                <span className="font-sans text-[11px] leading-snug text-clay-500">
+                                  AI 已解析为下方 prompt；每一幕画师都会参考这张图
+                                </span>
+                              </div>
+                              <div className="flex flex-col items-end gap-1">
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    fileInputRef.current?.click();
+                                  }}
+                                  disabled={parsing}
+                                  className="font-sans text-[11px] text-clay-500 hover:text-ember-500 transition-colors disabled:opacity-50"
+                                >
+                                  换一张
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    removeStyleRefImage();
+                                  }}
+                                  className="font-sans text-[11px] text-clay-400 hover:text-clay-900 transition-colors"
+                                >
+                                  移除
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                fileInputRef.current?.click();
+                              }}
+                              disabled={parsing}
+                              className={
+                                "flex items-center justify-center gap-2 rounded-sm border border-dashed px-3 py-2.5 font-sans text-[12px] transition-colors " +
+                                (parsing
+                                  ? "border-clay-900/15 bg-cream-100 text-clay-400 cursor-wait"
+                                  : "border-clay-900/25 text-clay-700 hover:border-ember-500 hover:bg-ember-500/5 hover:text-ember-500")
+                              }
+                            >
+                              {parsing ? (
+                                <>
+                                  <i className="fa-solid fa-circle-notch fa-spin text-[11px]" />
+                                  AI 正在解析参考图…
+                                </>
+                              ) : (
+                                <>
+                                  <i className="fa-regular fa-image text-[13px]" />
+                                  上传画风参考图（可选）· AI 自动解析为 prompt
+                                </>
+                              )}
+                            </button>
+                          )}
+                          {parseError && (
+                            <span className="font-sans text-[11px] text-rose-500">
+                              <i className="fa-solid fa-circle-exclamation mr-1" />
+                              {parseError}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                      <textarea
+                        value={draft}
+                        onChange={(e) => setDraft(e.target.value)}
+                        onClick={(e) => e.stopPropagation()}
+                        autoFocus
+                        rows={6}
+                        placeholder={
+                          isCustom
+                            ? "示例：\nA dreamy watercolor illustration, soft pastel washes, gentle line art, nostalgic atmosphere."
+                            : ""
+                        }
+                        className="w-full resize-y rounded-sm border border-ember-500 bg-cream-50 px-3 py-2.5 font-sans text-[13px] leading-relaxed text-clay-900 outline-none placeholder:text-clay-400"
+                      />
+                      <div className="flex items-center justify-between gap-3">
+                        {!isCustom && styleOverrides[name] ? (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              resetOverride(name);
+                            }}
+                            className="font-sans text-xs text-clay-500 hover:text-ember-500 transition-colors"
+                          >
+                            <i className="fa-solid fa-rotate-left mr-1.5" />
+                            还原默认 prompt
+                          </button>
+                        ) : (
+                          <span />
+                        )}
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              cancelEditing();
+                            }}
+                            className="px-3 py-1.5 font-sans text-xs text-clay-500 hover:text-clay-900 transition-colors"
+                          >
+                            取消
+                          </button>
+                          <button
+                            type="button"
+                            disabled={!draft.trim()}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              saveEditing();
+                            }}
+                            className={
+                              "rounded-sm px-4 py-1.5 font-sans text-xs text-cream-50 transition-colors " +
+                              (draft.trim()
+                                ? "bg-clay-900 hover:bg-ember-500"
+                                : "bg-clay-300 cursor-not-allowed")
+                            }
+                          >
+                            保存并选用
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    /* 只读 prompt 行——无边框、纯文字，铅笔靠 padding-right 留位 */
+                    <div className="mt-1 relative">
+                      <div
+                        className={
+                          "pr-8 font-sans text-[12px] md:text-[13px] leading-relaxed line-clamp-2 " +
+                          (isCustom && !customStyleGuide
+                            ? "italic text-clay-400"
+                            : "text-clay-500")
+                        }
+                      >
+                        {isCustom
+                          ? customStyleGuide || "点击此卡片或铅笔编辑你自己的画风 prompt"
+                          : prompt || "（这个风格没有默认 prompt——点 ✎ 添加）"}
+                      </div>
+                      {editable && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            startEditing(
+                              i,
+                              isCustom
+                                ? customStyleGuide
+                                : styleOverrides[name] ?? STYLE_MAP[name] ?? "",
+                            );
+                          }}
+                          title={
+                            hasOverride
+                              ? "再次编辑此 prompt"
+                              : "在此 prompt 基础上修改（默认 prompt 不会被覆盖）"
+                          }
+                          aria-label="编辑此风格 prompt"
+                          className={
+                            "absolute right-0 top-0 flex h-5 w-5 items-center justify-center rounded-sm text-[11px] transition-colors " +
+                            (hasOverride
+                              ? "text-ember-500 hover:bg-ember-500/10"
+                              : "text-clay-400 hover:bg-cream-100 hover:text-clay-700")
+                          }
+                        >
+                          <i className="fa-solid fa-pencil" />
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
           {list.length === 0 && (
-            <div className="col-span-full py-12 text-center font-serif text-sm text-clay-400">
+            <div className="py-12 text-center font-serif text-sm text-clay-400">
               没有匹配的风格
             </div>
           )}
@@ -1012,6 +1378,17 @@ export default function HomePage() {
   const [open, setOpen] = useState<number>(-1);
   const [styleOpen, setStyleOpen] = useState(false);
   const [prompt, setPrompt] = useState("");
+  // 用户在「自定义」入口里填的 styleGuide 文本（中/英文都行，原样喂给 LLM）。
+  // 仅在内存里持有——刷新即丢，符合「这就是一次性试玩」的语义。
+  const [customStyleGuide, setCustomStyleGuide] = useState("");
+  // 用户对某个预设的 prompt 改写——只覆盖该用户本次会话，绝不污染 STYLE_MAP
+  // 这个 source-of-truth。键是预设名（如 "京阿尼细腻日常"），值是 override prompt。
+  // 选中该预设 + 有 override → 把 override 当 styleGuide 喂给画师。
+  const [styleOverrides, setStyleOverrides] = useState<Record<string, string>>({});
+  // 用户在「自定义」里上传的参考图（已客户端缩到 512px、webp base64）。
+  // 同时随 sessionStorage 透传到 /play → /api/start → session → painter，
+  // 每一幕的 painter 都会把它作为 reference slot 0，锚定整局画风。
+  const [customStyleRefImage, setCustomStyleRefImage] = useState<string>("");
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   // 顶部使用提示：默认展示，用户可点 × 永久关闭（localStorage:infiplot:hintClosed）。
@@ -1081,10 +1458,10 @@ export default function HomePage() {
     // 不会再出现「点开始 → 剧情和占位文字毫无关系」的体验断层。
     const userPrompt =
       prompt.trim() || (phrases[phraseIdx] ?? "").trim();
-    const artStyle = OPTS[1]!.items[sel[1] ?? 0]!;
-    const plotStyle = OPTS[2]!.items[sel[2] ?? 1]!;
+    const artStyle = ART_STYLES[sel[1] ?? 0] ?? "自动";
+    const plotStyle = PLOT_STYLES[sel[2] ?? 1] ?? "多线转折";
     const voice = OPTS[3]!.items[sel[3] ?? 1]!;
-    const pace = OPTS[4]!.items[sel[4] ?? 1]!;
+    const pace = PACINGS[sel[4] ?? 1] ?? "紧凑爽快";
 
     // worldSetting 顺序很重要：玩家输入若存在，必须放在最前面、单独成段、
     // 用强指令包住，否则模型会把它当成夹在风格说明里的背景参考、扩写出
@@ -1108,23 +1485,54 @@ export default function HomePage() {
     // 「自动」→ fall back to Galgame CG (project default). Plain prompts like
     // "由模型自动判断画风" are not understood by FLUX — it just paints them
     // literally, so we'd rather lock in a sensible default.
+    // 「自定义」→ 用用户在弹窗里填的原始 styleGuide，原样喂给 LLM；空内容时
+    // 退化到默认（避免传入空字符串导致 /api/start 报缺字段）。
     // TODO(自动路由): 后续实现真正的「自动」——由模型依据世界观 / 玩家 prompt
     // 选出最合适的画风，再映射到对应风格提示词，而非固定回退到 Galgame。届时
     // 同步更新风格弹窗副标题（「由模型根据 prompt 判断风格」）使文案与行为一致。
-    const DEFAULT_STYLE = "Galgame CG 梦幻光影";
-    const effectiveStyle = artStyle === "自动" ? DEFAULT_STYLE : artStyle;
-    const styleGuide = STYLE_MAP[effectiveStyle] ?? STYLE_MAP[DEFAULT_STYLE]!;
+    const DEFAULT_STYLE = "Galgame CG";
+    let styleGuide: string;
+    if (artStyle === "自定义" && customStyleGuide.trim()) {
+      styleGuide = customStyleGuide.trim();
+    } else if (styleOverrides[artStyle]?.trim()) {
+      // 用户对该预设做过 prompt 修改——优先用 override，不污染 STYLE_MAP。
+      styleGuide = styleOverrides[artStyle]!.trim();
+    } else {
+      const effectiveStyle =
+        artStyle === "自动" || artStyle === "自定义" ? DEFAULT_STYLE : artStyle;
+      styleGuide = STYLE_MAP[effectiveStyle] ?? STYLE_MAP[DEFAULT_STYLE]!;
+    }
     const audioEnabled = voice === "开启";
+
+    // 只有「自定义」风格选中、且确实上传了参考图时才透传——其他预设没必要
+    // 占用 reference slot（也避免 styleGuide 已经是文本预设、画师收到不相关
+    // 参考图反而产生干扰）。
+    const styleReferenceImage =
+      artStyle === "自定义" && customStyleRefImage ? customStyleRefImage : undefined;
+
+    track("game_start", {
+      source: "prompt",
+      gender,
+      art_style: artStyle,
+      plot_style: plotStyle,
+      pacing: pace,
+      tts: audioEnabled,
+      has_prompt: prompt.trim().length > 0,
+      has_style_ref: Boolean(styleReferenceImage),
+    });
 
     sessionStorage.setItem(
       "infiplot:custom",
-      JSON.stringify({ worldSetting, styleGuide, audioEnabled }),
+      JSON.stringify({ worldSetting, styleGuide, audioEnabled, styleReferenceImage }),
     );
     router.push("/play?custom=1");
   };
 
   const stories = STORIES[galleryGender];
   const imgPrefix = galleryGender === "女性向" ? "f" : "m";
+  const analyticsOn = Boolean(
+    process.env.NEXT_PUBLIC_UMAMI_SRC && process.env.NEXT_PUBLIC_UMAMI_WEBSITE_ID,
+  );
 
   // 点卡片 = 直接开始这张卡的故事，零等待：跳 /play?card=m0/f0... 由 /play
   // 页面从 /home/firstact/{name}.json 静态文件加载预烘焙好的首幕（含 scene /
@@ -1139,6 +1547,12 @@ export default function HomePage() {
       "infiplot:custom",
       JSON.stringify({ worldSetting: "", styleGuide: "", audioEnabled }),
     );
+    track("game_start", {
+      source: "curated",
+      gender: galleryGender,
+      tts: audioEnabled,
+      card: `${imgPrefix}${idx}`,
+    });
     router.push(`/play?card=${imgPrefix}${idx}`);
   };
 
@@ -1370,8 +1784,21 @@ export default function HomePage() {
           目前，内测期间生成的内容不会被保存，如有需要，请通过录屏或截图等方式保存游玩体验，并记录下生成故事时的提示词与风格选项等。
           <br />
           AI 生成的内容不代表本团队立场。
-          <br />
-          本站使用开源的 Umami 进行隐私友好的匿名访问统计：不使用 Cookie、不收集个人信息、不做跨站追踪。
+          {analyticsOn && (
+            <>
+              <br />
+              本站使用开源的{" "}
+              <a
+                href="https://umami.is/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline decoration-clay-900/20 underline-offset-2 transition-colors hover:text-clay-700"
+              >
+                Umami
+              </a>{" "}
+              进行隐私友好的匿名访问与交互统计：不使用 Cookie、不收集个人信息、不发送任何您输入的内容、不做跨站追踪。
+            </>
+          )}
         </p>
       </section>
 
@@ -1386,8 +1813,17 @@ export default function HomePage() {
         <StyleModal
           items={OPTS[styleRow]!.items}
           value={sel[styleRow] ?? 0}
-          onPick={(i) => setSel((s) => s.map((v, j) => (j === styleRow ? i : v)))}
+          onPick={(i) => {
+            track("art_style_select", { style: ART_STYLES[i] ?? "自动" });
+            setSel((s) => s.map((v, j) => (j === styleRow ? i : v)));
+          }}
           onClose={() => setStyleOpen(false)}
+          customStyleGuide={customStyleGuide}
+          setCustomStyleGuide={setCustomStyleGuide}
+          styleOverrides={styleOverrides}
+          setStyleOverrides={setStyleOverrides}
+          customStyleRefImage={customStyleRefImage}
+          setCustomStyleRefImage={setCustomStyleRefImage}
         />
       )}
     </div>

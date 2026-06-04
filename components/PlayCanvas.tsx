@@ -276,6 +276,18 @@ export function PlayCanvas({
     });
   }
 
+  // Card swallows its own clicks so they never fall through to the image's
+  // vision (识图) trigger: while typing a click completes the text, a continue
+  // beat advances, and a choice beat stays inert (player must pick an option).
+  function handleCardClick() {
+    if (phase !== "ready" || !beat) return;
+    if (!typingDone) {
+      skipTypewriter();
+      return;
+    }
+    if (beat.next.type === "continue") onAdvance();
+  }
+
   const interactive = phase === "ready" && !!imageUrl;
   const dimmed = phase === "transitioning";
 
@@ -310,11 +322,19 @@ export function PlayCanvas({
           className="relative inline-block"
           style={{ boxShadow: fullViewport ? "none" : SHADOW }}
         >
-          {/* Background image — Runware CDN URL or data URI (mock mode) */}
+          {/* Background image — Runware CDN URL or data URI (mock mode).
+              The width/height attributes are NOT rendered dimensions (w-auto
+              h-auto + the maxWidth/maxHeight in sizeStyle still drive the
+              final layout); they give the browser an intrinsic aspect ratio
+              so that, while the bytes are still arriving from the CDN, the
+              <img> reserves a 1792:1024 box instead of collapsing to a
+              one-pixel sliver — fixes the "等很久 → 一根线 → 突然出图" jank. */}
           <img
             key={imageUrl.slice(-48)}
             ref={imgRef}
             src={imageUrl}
+            width={1792}
+            height={1024}
             alt="Generated scene"
             onClick={handleImageClick}
             draggable={false}
@@ -358,7 +378,8 @@ export function PlayCanvas({
 
               {(beat.narration || beat.line) && (
                 <div
-                  className="pointer-events-none mx-[2%] mb-[2%] px-[3%] py-[2.2%] relative"
+                  className="pointer-events-auto mx-[2%] mb-[2%] px-[3%] py-[2.2%] relative"
+                  onClick={handleCardClick}
                   style={{
                     background: "rgba(14, 10, 6, 0.72)",
                     border: "1.5px solid rgba(175, 138, 72, 0.60)",

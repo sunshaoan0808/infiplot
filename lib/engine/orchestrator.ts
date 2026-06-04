@@ -47,6 +47,7 @@ export async function startSession(
     styleGuide: req.styleGuide.trim(),
     history: [],
     characters: [],
+    styleReferenceImage: req.styleReferenceImage?.trim() || undefined,
   };
 
   // Stage 0 — Architect: expand the terse world/style prompt into a story
