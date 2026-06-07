@@ -17,8 +17,7 @@ import {
 } from "@/components/PlayCanvas";
 import type { DialogueHistoryItem } from "@/components/DialogueHistoryModal";
 import type { GalleryDoc, GalleryScene } from "@/app/gallery/page";
-import { TtsKeyModal } from "@/components/TtsKeyModal";
-import { readStoredPlayerName } from "@/components/SettingsModal";
+import { SettingsModal, readStoredPlayerName, readStoredVisionClick } from "@/components/SettingsModal";
 import { annotateClick } from "@/lib/annotateClient";
 import { loadClientTtsConfig } from "@/lib/clientTtsConfig";
 import { PRESETS } from "@/lib/presets";
@@ -580,9 +579,8 @@ function PlayInner() {
   const [silenceStrikes, setSilenceStrikes] = useState(0);
   // Once the player dismisses the silence nudge, keep it gone for this session.
   const [nudgeDismissed, setNudgeDismissed] = useState(false);
-  // The in-place BYO-key modal, opened from the silence nudge so the player can
-  // add a key without leaving the play page.
-  const [ttsModalOpen, setTtsModalOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [visionClickEnabled, setVisionClickEnabled] = useState(true);
 
   const startedRef = useRef(false);
   const poolRef = useRef<Map<string, PrefetchEntry>>(new Map());
@@ -652,6 +650,9 @@ function PlayInner() {
   useEffect(() => {
     mutedRef.current = muted;
   }, [muted]);
+  useEffect(() => {
+    setVisionClickEnabled(readStoredVisionClick());
+  }, []);
 
   // Coarse liveness ping for active-time analytics. /play is a single SPA
   // route, so page views alone read as ~0 duration; a 30s heartbeat (only
@@ -852,15 +853,10 @@ function PlayInner() {
     prefetchSceneAudio();
   }, [muted, prefetchSceneAudio]);
 
-  // ── BYO key enabled/disabled from the play page (silence nudge → modal) ─
-  // On enable: point the synth path at the user's key and immediately
-  // re-synthesize the current scene in-browser, so the voices the player just
-  // missed come back without a reload (their characters already carry
-  // server-provisioned `voice`, which resolveByoVoice reuses with the new key).
-  // On disable: just stop using it; later scenes fall back to the server.
-  const handleByoSaved = useCallback(
-    (configured: boolean) => {
-      const cfg = configured ? loadClientTtsConfig() : null;
+  const handleSettingsSaved = useCallback(
+    (settings: { ttsConfigured: boolean; playerName: string; visionClickEnabled: boolean }) => {
+      setVisionClickEnabled(settings.visionClickEnabled);
+      const cfg = settings.ttsConfigured ? loadClientTtsConfig() : null;
       byoTtsRef.current = cfg;
       setByoTtsConfig(cfg);
       if (cfg) {
@@ -1761,6 +1757,8 @@ function PlayInner() {
           onFreeformInput={onFreeformInput}
           orientation={orientation}
           playerName={session?.playerName}
+          visionClickEnabled={visionClickEnabled}
+          onOpenSettings={() => setSettingsOpen(true)}
           fullViewport
           dialogueHistory={dialogueHistory}
         />
@@ -1787,6 +1785,14 @@ function PlayInner() {
               />
             </button>
           </div>
+        )}
+        {settingsOpen && (
+          <SettingsModal
+            initialVisionClickEnabled={visionClickEnabled}
+            onClose={() => setSettingsOpen(false)}
+            onSaved={handleSettingsSaved}
+            footerNote="保存后配音 Key 会立即生效，用你自己的额度合成当前这一幕的配音。"
+          />
         )}
       </div>
     );
@@ -1838,6 +1844,8 @@ function PlayInner() {
           onFreeformInput={onFreeformInput}
           orientation={orientation}
           playerName={session?.playerName}
+          visionClickEnabled={visionClickEnabled}
+          onOpenSettings={() => setSettingsOpen(true)}
           dialogueHistory={dialogueHistory}
           aboveCanvas={
             <button
@@ -1887,7 +1895,7 @@ function PlayInner() {
                 <span className="flex items-center gap-1 animate-fade-in">
                   <button
                     type="button"
-                    onClick={() => setTtsModalOpen(true)}
+                    onClick={() => setSettingsOpen(true)}
                     className="inline-flex items-center gap-1.5 rounded-full border border-ember-500/40 bg-ember-500/10 px-2.5 py-1 text-[10px] text-ember-500 hover:bg-ember-500/20 transition-colors"
                     title="经常没声音？填入你自己的小米 MiMo Key（免费），配音更稳定"
                   >
@@ -1925,11 +1933,12 @@ function PlayInner() {
 
       </main>
 
-      {ttsModalOpen && (
-        <TtsKeyModal
-          onClose={() => setTtsModalOpen(false)}
-          onSaved={handleByoSaved}
-          footerNote="保存后会立即用这把 Key 在你的浏览器里合成当前这一幕的配音；本设备后续游玩也会自动使用此 Key。"
+      {settingsOpen && (
+        <SettingsModal
+          initialVisionClickEnabled={visionClickEnabled}
+          onClose={() => setSettingsOpen(false)}
+          onSaved={handleSettingsSaved}
+          footerNote="保存后配音 Key 会立即生效，用你自己的额度合成当前这一幕的配音。"
         />
       )}
     </div>
