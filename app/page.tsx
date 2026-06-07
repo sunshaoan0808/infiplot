@@ -1261,6 +1261,7 @@ export default function HomePage() {
 
   const styleRow = OPTS.findIndex((o) => o.modal);
   const voiceRow = OPTS.findIndex((o) => o.label === "语音配音");
+  const paceRow = OPTS.findIndex((o) => o.label === "内容节奏");
   const genderIndex = sel[0] ?? 0;
   const gender = (OPTS[0]!.items[genderIndex] as Gender) ?? "男性向";
   const phrases = EXAMPLE_PHRASES[gender];
@@ -1335,7 +1336,7 @@ export default function HomePage() {
     const plotStyle = PLOT_STYLES[sel[2] ?? 1] ?? "多线转折";
     const voice = OPTS[voiceRow]!.items[sel[voiceRow] ?? 1]!;
     const audioEnabled = voice === "开启";
-    const pace = PACINGS[sel[4] ?? 1] ?? "紧凑爽快";
+    const pace = PACINGS[sel[paceRow] ?? 1] ?? "紧凑爽快";
 
     // worldSetting 顺序很重要：玩家输入若存在，必须放在最前面、单独成段、
     // 用强指令包住，否则模型会把它当成夹在风格说明里的背景参考、扩写出

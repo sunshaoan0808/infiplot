@@ -580,10 +580,7 @@ function PlayInner() {
   // Once the player dismisses the silence nudge, keep it gone for this session.
   const [nudgeDismissed, setNudgeDismissed] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [visionClickEnabled, setVisionClickEnabled] = useState<boolean>(() => {
-    if (typeof window === "undefined") return true;
-    return readStoredVisionClick();
-  });
+  const [visionClickEnabled, setVisionClickEnabled] = useState(true);
 
   const startedRef = useRef(false);
   const poolRef = useRef<Map<string, PrefetchEntry>>(new Map());
@@ -653,6 +650,9 @@ function PlayInner() {
   useEffect(() => {
     mutedRef.current = muted;
   }, [muted]);
+  useEffect(() => {
+    setVisionClickEnabled(readStoredVisionClick());
+  }, []);
 
   // Coarse liveness ping for active-time analytics. /play is a single SPA
   // route, so page views alone read as ~0 duration; a 30s heartbeat (only
