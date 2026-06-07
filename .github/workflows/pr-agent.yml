@@ -34,7 +34,7 @@ jobs:
           config.reasoning_effort: "high"
           openai.api_base: ${{ secrets.PR_REVIEW_BASE_URL }}
           github_action_config.auto_review: "true"
-          github_action_config.auto_describe: "true"
+          github_action_config.auto_describe: "false"
           github_action_config.auto_improve: "true"
           github_action_config.pr_actions: '["opened", "reopened", "ready_for_review", "synchronize"]'
           pr_reviewer.extra_instructions: |

@@ -19,7 +19,7 @@ require_todo_scan = true
 persistent_comment = false          # two model jobs would otherwise overwrite each other
 
 [pr_description]
-generate_ai_title = true
+generate_ai_title = false
 publish_labels = true
 use_bullet_points = true
 enable_pr_diagram = true
