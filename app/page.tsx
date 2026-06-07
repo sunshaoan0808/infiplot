@@ -11,7 +11,7 @@ import {
   type Gender,
 } from "@/lib/options";
 import { readStoredTtsConfig } from "@/lib/clientTtsConfig";
-import { SettingsModal, readStoredPlayerName } from "@/components/SettingsModal";
+import { SettingsModal, readStoredPlayerName, readStoredVisionClick } from "@/components/SettingsModal";
 
 /* ============================================================================
    InfiPlot · 首页（编辑式视觉风格 · 居中构图，呼应低保真原型）
@@ -47,6 +47,7 @@ const OPTS: Opt[] = [
   { label: "性向", items: [...GENDERS] },
   { label: "绘画风格", modal: true, items: [...ART_STYLES] },
   { label: "剧情风格", items: [...PLOT_STYLES], defaultIndex: 1 },
+  { label: "语音配音", items: ["关闭", "开启"], defaultIndex: 1 },
   { label: "内容节奏", items: [...PACINGS], defaultIndex: 1 },
 ];
 
@@ -1252,13 +1253,14 @@ export default function HomePage() {
   // 顶部使用提示：默认展示，用户可点 × 永久关闭（localStorage:infiplot:hintClosed）。
   const [hintClosed, setHintClosed] = useState(false);
 
-  // 统一设置弹窗（名字 + 配音 + TTS Key）：可选增强，数据只存浏览器。
+  // 统一设置弹窗（名字 + 识图 + TTS Key）：可选增强，数据只存浏览器。
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [ttsConfigured, setTtsConfigured] = useState(false);
   const [playerName, setPlayerName] = useState("");
-  const [audioEnabled, setAudioEnabled] = useState(true);
+  const [visionClickEnabled, setVisionClickEnabled] = useState(true);
 
   const styleRow = OPTS.findIndex((o) => o.modal);
+  const voiceRow = OPTS.findIndex((o) => o.label === "语音配音");
   const genderIndex = sel[0] ?? 0;
   const gender = (OPTS[0]!.items[genderIndex] as Gender) ?? "男性向";
   const phrases = EXAMPLE_PHRASES[gender];
@@ -1300,14 +1302,11 @@ export default function HomePage() {
     }
   }, []);
 
-  // 启动时回填配置状态——读 localStorage 判断用户是否已存过 Key / 名字 / 配音偏好。
+  // 启动时回填配置状态——读 localStorage 判断用户是否已存过 Key / 名字。
   useEffect(() => {
     setTtsConfigured(readStoredTtsConfig() != null);
     setPlayerName(readStoredPlayerName());
-    try {
-      const stored = localStorage.getItem("infiplot:muted");
-      if (stored === "1") setAudioEnabled(false);
-    } catch { /* ignore */ }
+    setVisionClickEnabled(readStoredVisionClick());
   }, []);
 
   // 输入框随内容自动增高：长文本整段可见（打字与点卡片填入都覆盖）。
@@ -1334,7 +1333,9 @@ export default function HomePage() {
       prompt.trim() || (phrases[phraseIdx] ?? "").trim();
     const artStyle = ART_STYLES[sel[1] ?? 0] ?? "自动";
     const plotStyle = PLOT_STYLES[sel[2] ?? 1] ?? "多线转折";
-    const pace = PACINGS[sel[3] ?? 1] ?? "紧凑爽快";
+    const voice = OPTS[voiceRow]!.items[sel[voiceRow] ?? 1]!;
+    const audioEnabled = voice === "开启";
+    const pace = PACINGS[sel[4] ?? 1] ?? "紧凑爽快";
 
     // worldSetting 顺序很重要：玩家输入若存在，必须放在最前面、单独成段、
     // 用强指令包住，否则模型会把它当成夹在风格说明里的背景参考、扩写出
@@ -1407,6 +1408,8 @@ export default function HomePage() {
   // 其余选项（剧情风格 / 内容节奏）在预烘焙时已锁成「多线转折 / 紧凑爽快」
   // 的红果默认基调，对精选卡不再生效。
   const onCardClick = (idx: number, _card: StoryContent) => {
+    const voice = OPTS[voiceRow]!.items[sel[voiceRow] ?? 1]!;
+    const audioEnabled = voice === "开启";
     sessionStorage.setItem(
       "infiplot:custom",
       JSON.stringify({ worldSetting: "", styleGuide: "", audioEnabled, playerName }),
@@ -1428,6 +1431,15 @@ export default function HomePage() {
           Infi<em className="italic font-light text-ember-500">Plot</em>
         </span>
         <div className="flex items-center gap-5">
+          <button
+            type="button"
+            onClick={() => setSettingsOpen(true)}
+            aria-label="设置"
+            title="设置"
+            className="text-base text-clay-500 hover:text-ember-500 transition-colors"
+          >
+            <i className="fa-solid fa-gear" />
+          </button>
           <a
             href="https://github.com/zonghaoyuan/infiplot"
             target="_blank"
@@ -1528,23 +1540,6 @@ export default function HomePage() {
                 />
               </div>
             ))}
-            {/* 设置入口：与 CategorySelect 视觉一致，点击打开 modal */}
-            <div className="text-left">
-              <button
-                type="button"
-                onClick={() => setSettingsOpen(true)}
-                className="group flex items-center gap-2.5 pb-1.5 border-b border-clay-900/20 hover:border-clay-900/45 transition-colors"
-              >
-                <span className="text-[10px] smallcaps text-clay-500">设置</span>
-                <span className={
-                  "font-serif text-base md:text-lg " +
-                  (ttsConfigured || playerName ? "text-ember-500" : "text-clay-900")
-                }>
-                  {playerName || (ttsConfigured ? "已配置" : "未配置")}
-                </span>
-                <i className="fa-solid fa-gear text-[9px] text-clay-400" />
-              </button>
-            </div>
           </div>
 
           {/* 使用提示：可被用户永久关闭（localStorage:infiplot:hintClosed） */}
@@ -1714,12 +1709,17 @@ export default function HomePage() {
       )}
       {settingsOpen && (
         <SettingsModal
-          initialAudioEnabled={audioEnabled}
+          initialVisionClickEnabled={visionClickEnabled}
           onClose={() => setSettingsOpen(false)}
           onSaved={(settings) => {
             setTtsConfigured(settings.ttsConfigured);
             setPlayerName(settings.playerName);
-            setAudioEnabled(settings.audioEnabled);
+            setVisionClickEnabled(settings.visionClickEnabled);
+            if (settings.ttsConfigured && voiceRow >= 0) {
+              const onIdx = OPTS[voiceRow]!.items.indexOf("开启");
+              if (onIdx >= 0)
+                setSel((s) => s.map((v, j) => (j === voiceRow ? onIdx : v)));
+            }
           }}
         />
       )}

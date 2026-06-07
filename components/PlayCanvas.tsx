@@ -178,6 +178,8 @@ export function PlayCanvas({
   fullViewport = false,
   orientation = "landscape",
   playerName,
+  visionClickEnabled = true,
+  onOpenSettings,
   aboveCanvas,
   aboveCanvasLeft,
   belowCanvas,
@@ -197,6 +199,9 @@ export function PlayCanvas({
   // 会话锁定的图片朝向。"portrait" 时整图铺满视口（object-fit:cover）、选项竖排、字号放大。
   orientation?: Orientation;
   playerName?: string;
+  // 选择节点点击背景是否触发识图。关闭时背景点击保持静默，用户只能点选项。
+  visionClickEnabled?: boolean;
+  onOpenSettings?: () => void;
   // 渲染在图片正上方、右对齐的 slot（画面外、紧贴右上角）。
   aboveCanvas?: ReactNode;
   // 渲染在图片正上方、左对齐的 slot（画面外、紧贴左上角），与 aboveCanvas 水平镜像。
@@ -276,14 +281,18 @@ export function PlayCanvas({
   }
 
   function handleImageClick(e: React.MouseEvent<HTMLImageElement>) {
-    if (phase !== "ready" || !imgRef.current || !beat) return;
+    if (phase !== "ready" || !beat) return;
+    if (!typingDone) {
+      skipTypewriter();
+      return;
+    }
+    if (beat.next.type === "continue") {
+      onAdvance();
+      return;
+    }
+    if (!visionClickEnabled || !imgRef.current) return;
     const el = imgRef.current;
     const rect = el.getBoundingClientRect();
-    // Portrait renders with object-fit:cover, which scales the 9:16 image to
-    // FILL the box and crops the overflow — so the rendered box ≠ the full
-    // image. Map the click from box-space back into full-image-space via the
-    // cover geometry so the marker lands where the user tapped. Landscape's box
-    // matches the image aspect (no crop), so it keeps simple normalization.
     let x: number;
     let y: number;
     if (orientation === "portrait") {
@@ -297,18 +306,6 @@ export function PlayCanvas({
     } else {
       x = (e.clientX - rect.left) / rect.width;
       y = (e.clientY - rect.top) / rect.height;
-    }
-    // If the typewriter is still printing, a click completes it instantly
-    // (standard VN affordance) — the page never sees this click.
-    if (!typingDone) {
-      skipTypewriter();
-      return;
-    }
-    // For continue-type beats, image click advances; for choice beats,
-    // image click goes through vision (treat as freeform action).
-    if (beat.next.type === "continue") {
-      onAdvance();
-      return;
     }
     onBackgroundClick({
       x: Math.max(0, Math.min(1, x)),
@@ -329,6 +326,9 @@ export function PlayCanvas({
   }
 
   const interactive = phase === "ready" && !!imageUrl;
+  const imageClickable =
+    interactive &&
+    (!typingDone || beat?.next.type === "continue" || visionClickEnabled);
   const dimmed = phase === "transitioning";
 
   const portrait = orientation === "portrait";
@@ -393,7 +393,7 @@ export function PlayCanvas({
             onClick={handleImageClick}
             draggable={false}
             className={`block ${portrait ? "" : "w-auto h-auto"} select-none animate-fade-in transition-opacity duration-700 ease-out ${
-              interactive ? "cursor-pointer" : "cursor-wait"
+              imageClickable ? "cursor-pointer" : interactive ? "cursor-default" : "cursor-wait"
             } ${dimmed ? "opacity-40" : "opacity-100"}`}
             style={sizeStyle}
           />
@@ -631,12 +631,27 @@ export function PlayCanvas({
 
                   {typingDone && beat.next.type === "continue" && (
                     <span
-                      className="absolute bottom-[6px] right-[42px] text-[10px] animate-slow-pulse"
+                      className={`absolute bottom-[6px] ${onOpenSettings ? "right-[74px]" : "right-[42px]"} text-[10px] animate-slow-pulse`}
                       style={{ color: "rgba(195,155,75,0.7)" }}
                       aria-hidden
                     >
                       ▼
                     </span>
+                  )}
+
+                  {onOpenSettings && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onOpenSettings();
+                      }}
+                      className="absolute bottom-[6px] right-[8px] flex h-7 w-7 items-center justify-center text-[rgba(195,155,75,0.78)] transition-colors hover:text-[rgba(245,235,210,0.96)]"
+                      aria-label="打开设置"
+                      title="设置"
+                    >
+                      <i className="fa-solid fa-gear text-[12px]" />
+                    </button>
                   )}
 
                   <button
@@ -645,7 +660,9 @@ export function PlayCanvas({
                       e.stopPropagation();
                       setHistoryOpen(true);
                     }}
-                    className="absolute bottom-[6px] right-[8px] flex h-7 w-7 items-center justify-center text-[rgba(195,155,75,0.78)] transition-colors hover:text-[rgba(245,235,210,0.96)]"
+                    className={`absolute bottom-[6px] ${
+                      onOpenSettings ? "right-[40px]" : "right-[8px]"
+                    } flex h-7 w-7 items-center justify-center text-[rgba(195,155,75,0.78)] transition-colors hover:text-[rgba(245,235,210,0.96)]`}
                     aria-label="打开剧情回溯"
                     title="剧情回溯"
                   >

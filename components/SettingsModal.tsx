@@ -14,6 +14,7 @@ import {
 } from "@/lib/ttsPresets";
 
 const PLAYER_NAME_STORAGE_KEY = "infiplot:playerName";
+const VISION_CLICK_STORAGE_KEY = "infiplot:visionClick";
 
 export function readStoredPlayerName(): string {
   try {
@@ -35,15 +36,23 @@ export function writeStoredPlayerName(name: string): void {
   }
 }
 
+export function readStoredVisionClick(): boolean {
+  try {
+    return localStorage.getItem(VISION_CLICK_STORAGE_KEY) !== "0";
+  } catch {
+    return true;
+  }
+}
+
 export function SettingsModal({
-  initialAudioEnabled = true,
+  initialVisionClickEnabled = true,
   onClose,
   onSaved,
   footerNote,
 }: {
-  initialAudioEnabled?: boolean;
+  initialVisionClickEnabled?: boolean;
   onClose: () => void;
-  onSaved: (settings: { ttsConfigured: boolean; playerName: string; audioEnabled: boolean }) => void;
+  onSaved: (settings: { ttsConfigured: boolean; playerName: string; visionClickEnabled: boolean }) => void;
   footerNote?: ReactNode;
 }) {
   const [initialTts] = useState(() => readStoredTtsConfig());
@@ -59,7 +68,7 @@ export function SettingsModal({
   const ttsAlreadyConfigured = initialTts != null;
 
   const [playerName, setPlayerName] = useState(() => readStoredPlayerName());
-  const [voiceOn, setVoiceOn] = useState(initialAudioEnabled);
+  const [visionClick, setVisionClick] = useState(initialVisionClickEnabled);
 
   const [shown, setShown] = useState(false);
 
@@ -82,7 +91,7 @@ export function SettingsModal({
     writeStoredPlayerName(name);
 
     try {
-      localStorage.setItem("infiplot:muted", voiceOn ? "0" : "1");
+      localStorage.setItem(VISION_CLICK_STORAGE_KEY, visionClick ? "1" : "0");
     } catch { /* ignore */ }
 
     const key = apiKey.trim();
@@ -97,18 +106,15 @@ export function SettingsModal({
       ttsConfigured = true;
     }
 
-    if (ttsConfigured && !voiceOn) setVoiceOn(true);
-    const finalVoiceOn = ttsConfigured ? true : voiceOn;
-
-    onSaved({ ttsConfigured, playerName: name, audioEnabled: finalVoiceOn });
+    onSaved({ ttsConfigured, playerName: name, visionClickEnabled: visionClick });
     close();
   };
 
   const clearAll = () => {
     clearStoredTtsConfig();
     writeStoredPlayerName("");
-    try { localStorage.removeItem("infiplot:muted"); } catch { /* ignore */ }
-    onSaved({ ttsConfigured: false, playerName: "", audioEnabled: true });
+    try { localStorage.removeItem(VISION_CLICK_STORAGE_KEY); } catch { /* ignore */ }
+    onSaved({ ttsConfigured: false, playerName: "", visionClickEnabled: true });
     close();
   };
 
@@ -179,29 +185,29 @@ export function SettingsModal({
 
           <div className="border-t border-clay-900/8 mx-6 md:mx-8" />
 
-          {/* ── Voice Section (toggle + key as child) ── */}
-          <div className="flex flex-col gap-3 px-6 md:px-8 pt-5 pb-5">
+          {/* ── Vision Click Section ── */}
+          <div className="flex flex-col gap-3 px-6 md:px-8 py-5">
             <div className="flex items-center gap-2.5">
               <span className="flex h-7 w-7 items-center justify-center rounded-sm border border-clay-900/10 bg-cream-100 text-clay-400">
-                <i className="fa-solid fa-volume-high text-[11px]" />
+                <i className="fa-solid fa-eye text-[11px]" />
               </span>
               <span className="font-serif text-base text-clay-900">
-                语音配音
+                点击画面识别
               </span>
             </div>
             <div className="grid grid-cols-2 gap-2">
               {(
                 [
-                  { on: true, label: "开启", icon: "fa-solid fa-volume-high" },
-                  { on: false, label: "关闭", icon: "fa-solid fa-volume-xmark" },
+                  { on: true, label: "开启", icon: "fa-solid fa-wand-magic-sparkles" },
+                  { on: false, label: "关闭", icon: "fa-solid fa-ban" },
                 ] as const
               ).map((t) => {
-                const active = voiceOn === t.on;
+                const active = visionClick === t.on;
                 return (
                   <button
                     key={String(t.on)}
                     type="button"
-                    onClick={() => setVoiceOn(t.on)}
+                    onClick={() => setVisionClick(t.on)}
                     className={
                       "flex items-center justify-center gap-2 rounded-sm border px-3 py-2.5 text-[13px] transition-all " +
                       (active
@@ -215,155 +221,160 @@ export function SettingsModal({
                 );
               })}
             </div>
+            <span className="text-[11px] text-clay-400">
+              开启后，在选择节点点击画面会触发 AI 识图并生成新的剧情分支。
+            </span>
+          </div>
 
-            {/* ── TTS Key (sub-section, only when voice is on) ── */}
-            {voiceOn && (
-              <div className="mt-3 flex flex-col gap-4 rounded-sm border border-clay-900/8 bg-cream-100/40 p-4">
-                <div className="flex items-center gap-2">
-                  <i className="fa-solid fa-key text-[10px] text-clay-400" />
-                  <span className="text-[13px] text-clay-800">
-                    自带配音 Key
-                  </span>
-                  <span className="text-[10px] text-clay-400">可选</span>
-                </div>
-                <p className="text-[12px] leading-relaxed text-clay-500">
-                  填入你自己的
-                  <span className="text-clay-800">小米 MiMo API Key</span>
-                  ，配音将在浏览器本地合成，Key 只保存在本地、绝不经过服务器。MiMo
-                  TTS 目前
-                  <span className="text-clay-800">限时免费</span>
-                  ，申请即可使用。
-                </p>
+          <div className="border-t border-clay-900/8 mx-6 md:mx-8" />
 
-                <div className="flex flex-col gap-2">
-                  <span className="text-[10px] smallcaps text-clay-500">
-                    K e y · 类 型
-                  </span>
-                  <div className="grid grid-cols-2 gap-2">
-                    {(
-                      [
-                        {
-                          kind: "payg",
-                          label: "按量付费 Pay-as-you-go",
-                          sub: "sk- 开头",
-                        },
-                        {
-                          kind: "token-plan",
-                          label: "套餐 Token Plan",
-                          sub: "tp- 开头",
-                        },
-                      ] as const
-                    ).map((t) => {
-                      const active = keyType === t.kind;
-                      return (
-                        <button
-                          key={t.kind}
-                          type="button"
-                          onClick={() => setKeyType(t.kind)}
-                          className={
-                            "flex flex-col gap-0.5 rounded-sm border px-3 py-2.5 text-left transition-all " +
-                            (active
-                              ? "border-ember-500 bg-ember-500/5 text-clay-900"
-                              : "border-clay-900/12 text-clay-600 hover:border-clay-900/35 hover:bg-cream-100")
-                          }
-                        >
-                          <span className="text-[13px]">{t.label}</span>
-                          <span className="text-[10px] text-clay-400">
-                            {t.sub}
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
+          {/* ── TTS Key Section ── */}
+          <div className="flex flex-col gap-3 px-6 md:px-8 pt-5 pb-5">
+            <div className="flex items-center gap-2.5">
+              <span className="flex h-7 w-7 items-center justify-center rounded-sm border border-clay-900/10 bg-cream-100 text-clay-400">
+                <i className="fa-solid fa-key text-[11px]" />
+              </span>
+              <span className="font-serif text-base text-clay-900">
+                自带配音 Key
+              </span>
+              <span className="text-[10px] text-clay-400">可选</span>
+            </div>
+            <p className="text-[12px] leading-relaxed text-clay-500">
+              填入你自己的
+              <span className="text-clay-800"> 小米 MiMo API Key</span>
+              ，配音将在浏览器本地合成，Key 只保存在本地、绝不经过服务器。MiMo
+              TTS 目前
+              <span className="text-clay-800">限时免费</span>
+              ，申请即可使用。
+            </p>
 
-                {keyType === "token-plan" && (
-                  <div className="flex flex-col gap-2">
-                    <span className="text-[10px] smallcaps text-clay-500">
-                      区 域 节 点
-                    </span>
-                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-                      {TTS_REGION_PRESETS.map((p) => {
-                        const active = p.id === regionId;
-                        return (
-                          <button
-                            key={p.id}
-                            type="button"
-                            onClick={() => setRegionId(p.id)}
-                            className={
-                              "rounded-sm border px-3 py-2.5 text-left text-[13px] transition-all " +
-                              (active
-                                ? "border-ember-500 bg-ember-500/5 text-clay-900"
-                                : "border-clay-900/12 text-clay-600 hover:border-clay-900/35 hover:bg-cream-100")
-                            }
-                          >
-                            {p.label}
-                          </button>
-                        );
-                      })}
-                    </div>
-                    <span className="text-[11px] text-clay-400">
-                      选择与你的套餐订阅地区一致的节点（通常也是延迟最低的那个）。
-                    </span>
-                  </div>
-                )}
-
-                <div className="flex flex-col gap-2">
-                  <span className="text-[10px] smallcaps text-clay-500">
-                    A P I · K e y
-                  </span>
-                  <div className="relative">
-                    <input
-                      value={apiKey}
-                      onChange={(e) => setApiKey(e.target.value)}
-                      type={showKey ? "text" : "password"}
-                      autoComplete="off"
-                      spellCheck={false}
-                      placeholder={
-                        keyType === "payg"
-                          ? "粘贴 sk- 开头的按量 Key"
-                          : "粘贴 tp- 开头的套餐 Key"
-                      }
-                      className="h-11 w-full rounded-sm border border-clay-900/15 bg-cream-50 pl-4 pr-11 font-sans text-sm text-clay-900 outline-none transition-colors focus:border-ember-500 placeholder:text-clay-400"
-                    />
+            <div className="flex flex-col gap-2">
+              <span className="text-[10px] smallcaps text-clay-500">
+                K e y · 类 型
+              </span>
+              <div className="grid grid-cols-2 gap-2">
+                {(
+                  [
+                    {
+                      kind: "payg",
+                      label: "按量付费 Pay-as-you-go",
+                      sub: "sk- 开头",
+                    },
+                    {
+                      kind: "token-plan",
+                      label: "套餐 Token Plan",
+                      sub: "tp- 开头",
+                    },
+                  ] as const
+                ).map((t) => {
+                  const active = keyType === t.kind;
+                  return (
                     <button
+                      key={t.kind}
                       type="button"
-                      onClick={() => setShowKey((v) => !v)}
-                      aria-label={showKey ? "隐藏" : "显示"}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-clay-400 hover:text-clay-700 transition-colors"
+                      onClick={() => setKeyType(t.kind)}
+                      className={
+                        "flex flex-col gap-0.5 rounded-sm border px-3 py-2.5 text-left transition-all " +
+                        (active
+                          ? "border-ember-500 bg-ember-500/5 text-clay-900"
+                          : "border-clay-900/12 text-clay-600 hover:border-clay-900/35 hover:bg-cream-100")
+                      }
                     >
-                      <i
-                        className={`fa-solid ${showKey ? "fa-eye-slash" : "fa-eye"} text-sm`}
-                      />
+                      <span className="text-[13px]">{t.label}</span>
+                      <span className="text-[10px] text-clay-400">
+                        {t.sub}
+                      </span>
                     </button>
-                  </div>
-                  {prefixMismatch && (
-                    <span className="flex items-start gap-1.5 text-[11px] leading-relaxed text-ember-500">
-                      <i className="fa-solid fa-triangle-exclamation mt-0.5 text-[10px]" />
-                      此 Key 不是 {expectedPrefix} 开头，可能与所选「
-                      {keyType === "payg"
-                        ? "按量付费 Pay-as-you-go"
-                        : "套餐 Token Plan"}
-                      」类型不符，请确认是否填错。
-                    </span>
-                  )}
-                  <a
-                    href={TTS_KEY_DOC_URL}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1.5 text-[11px] text-ember-500 hover:text-ember-400 transition-colors"
-                  >
-                    <i className="fa-brands fa-github text-[11px]" />
-                    如何免费申请 Key？查看图文教程
-                  </a>
-                </div>
-
-                {footerNote && (
-                  <p className="text-[11px] leading-relaxed text-clay-400">
-                    {footerNote}
-                  </p>
-                )}
+                  );
+                })}
               </div>
+            </div>
+
+            {keyType === "token-plan" && (
+              <div className="flex flex-col gap-2">
+                <span className="text-[10px] smallcaps text-clay-500">
+                  区 域 节 点
+                </span>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                  {TTS_REGION_PRESETS.map((p) => {
+                    const active = p.id === regionId;
+                    return (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => setRegionId(p.id)}
+                        className={
+                          "rounded-sm border px-3 py-2.5 text-left text-[13px] transition-all " +
+                          (active
+                            ? "border-ember-500 bg-ember-500/5 text-clay-900"
+                            : "border-clay-900/12 text-clay-600 hover:border-clay-900/35 hover:bg-cream-100")
+                        }
+                      >
+                        {p.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                <span className="text-[11px] text-clay-400">
+                  选择与你的套餐订阅地区一致的节点（通常也是延迟最低的那个）。
+                </span>
+              </div>
+            )}
+
+            <div className="flex flex-col gap-2">
+              <span className="text-[10px] smallcaps text-clay-500">
+                A P I · K e y
+              </span>
+              <div className="relative">
+                <input
+                  value={apiKey}
+                  onChange={(e) => setApiKey(e.target.value)}
+                  type={showKey ? "text" : "password"}
+                  autoComplete="off"
+                  spellCheck={false}
+                  placeholder={
+                    keyType === "payg"
+                      ? "粘贴 sk- 开头的按量 Key"
+                      : "粘贴 tp- 开头的套餐 Key"
+                  }
+                  className="h-11 w-full rounded-sm border border-clay-900/15 bg-cream-100 pl-4 pr-11 font-sans text-sm text-clay-900 outline-none transition-colors focus:border-ember-500 placeholder:text-clay-400"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowKey((v) => !v)}
+                  aria-label={showKey ? "隐藏" : "显示"}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-clay-400 hover:text-clay-700 transition-colors"
+                >
+                  <i
+                    className={`fa-solid ${showKey ? "fa-eye-slash" : "fa-eye"} text-sm`}
+                  />
+                </button>
+              </div>
+              {prefixMismatch && (
+                <span className="flex items-start gap-1.5 text-[11px] leading-relaxed text-ember-500">
+                  <i className="fa-solid fa-triangle-exclamation mt-0.5 text-[10px]" />
+                  此 Key 不是 {expectedPrefix} 开头，可能与所选「
+                  {keyType === "payg"
+                    ? "按量付费 Pay-as-you-go"
+                    : "套餐 Token Plan"}
+                  」类型不符，请确认是否填错。
+                </span>
+              )}
+              <a
+                href={TTS_KEY_DOC_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 text-[11px] text-ember-500 hover:text-ember-400 transition-colors"
+              >
+                <i className="fa-brands fa-github text-[11px]" />
+                如何免费申请 Key？查看图文教程
+              </a>
+            </div>
+
+            {footerNote && (
+              <p className="text-[11px] leading-relaxed text-clay-400">
+                {footerNote}
+              </p>
             )}
           </div>
         </div>
