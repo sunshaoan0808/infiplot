@@ -1,10 +1,7 @@
 import { generateText } from "ai";
 import type { LanguageModelUsage, ModelMessage } from "ai";
-import { createAnthropic } from "@ai-sdk/anthropic";
-import { createGoogleGenerativeAI } from "@ai-sdk/google";
-import { createOpenAI } from "@ai-sdk/openai";
-import type { ProviderConfig, ProviderProtocol } from "@infiplot/types";
-import { normalizeBaseUrl } from "./normalizeUrl";
+import type { ProviderConfig } from "@infiplot/types";
+import { createLanguageModel, resolveProtocol } from "./model";
 
 export type ChatMessage = {
   role: "system" | "user" | "assistant";
@@ -31,24 +28,6 @@ function summarizeSdkUsage(
   return `[cache] ${tag} input=${input} completion=${output} (provider didn't report cache stats)`;
 }
 
-function resolveTextProtocol(config: ProviderConfig): ProviderProtocol {
-  return config.provider ?? "openai_compatible";
-}
-
-function createLanguageModel(config: ProviderConfig, protocol: ProviderProtocol) {
-  const baseURL = normalizeBaseUrl(config.baseUrl, protocol);
-  switch (protocol) {
-    case "anthropic":
-      return createAnthropic({ apiKey: config.apiKey, baseURL })(config.model);
-    case "google":
-      return createGoogleGenerativeAI({ apiKey: config.apiKey, baseURL })(config.model);
-    case "openai_compatible":
-    case "openai":
-    default:
-      return createOpenAI({ apiKey: config.apiKey, baseURL }).chat(config.model);
-  }
-}
-
 export async function chat(
   config: ProviderConfig,
   messages: ChatMessage[],
@@ -57,7 +36,7 @@ export async function chat(
     tag?: string;
   },
 ): Promise<string> {
-  const protocol = resolveTextProtocol(config);
+  const protocol = resolveProtocol(config);
   const model = createLanguageModel(config, protocol);
 
   const system = messages.find((m) => m.role === "system")?.content;

@@ -1,10 +1,7 @@
 import { generateText } from "ai";
 import type { ModelMessage } from "ai";
-import { createAnthropic } from "@ai-sdk/anthropic";
-import { createGoogleGenerativeAI } from "@ai-sdk/google";
-import { createOpenAI } from "@ai-sdk/openai";
-import type { ProviderConfig, ProviderProtocol } from "@infiplot/types";
-import { normalizeBaseUrl } from "./normalizeUrl";
+import type { ProviderConfig } from "@infiplot/types";
+import { createLanguageModel, resolveProtocol } from "./model";
 
 const VISION_TIMEOUT_MS = 60_000;
 
@@ -20,32 +17,13 @@ export async function interpretClick(
   );
 }
 
-function resolveVisionProtocol(config: ProviderConfig): ProviderProtocol {
-  return config.provider ?? "openai_compatible";
-}
-
 export async function analyzeImageDataUrl(
   config: ProviderConfig,
   imageDataUrl: string,
   prompt: string,
 ): Promise<string> {
-  const protocol = resolveVisionProtocol(config);
-  const baseURL = normalizeBaseUrl(config.baseUrl, protocol);
-
-  let model;
-  switch (protocol) {
-    case "anthropic":
-      model = createAnthropic({ apiKey: config.apiKey, baseURL })(config.model);
-      break;
-    case "google":
-      model = createGoogleGenerativeAI({ apiKey: config.apiKey, baseURL })(config.model);
-      break;
-    case "openai_compatible":
-    case "openai":
-    default:
-      model = createOpenAI({ apiKey: config.apiKey, baseURL }).chat(config.model);
-      break;
-  }
+  const protocol = resolveProtocol(config);
+  const model = createLanguageModel(config, protocol);
 
   const messages: ModelMessage[] = [
     {
