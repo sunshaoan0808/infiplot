@@ -12,6 +12,7 @@ import {
 } from "@/lib/options";
 import { readStoredTtsConfig } from "@/lib/clientTtsConfig";
 import { SettingsModal, readStoredPlayerName, readStoredVisionClick } from "@/components/SettingsModal";
+import { STORY_SHARE_STORAGE_KEY, parseStoryShareDoc } from "@/lib/storyShare";
 
 /* ============================================================================
    InfiPlot · 首页（编辑式视觉风格 · 居中构图，呼应低保真原型）
@@ -1249,6 +1250,8 @@ export default function HomePage() {
   const [customStyleGuide, setCustomStyleGuide] = useState("");
   const [customStyleRefImage, setCustomStyleRefImage] = useState<string>("");
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const storyImportRef = useRef<HTMLInputElement>(null);
+  const [storyImportError, setStoryImportError] = useState<string | null>(null);
 
   // 顶部使用提示：默认展示，用户可点 × 永久关闭（localStorage:infiplot:hintClosed）。
   const [hintClosed, setHintClosed] = useState(false);
@@ -1396,6 +1399,46 @@ export default function HomePage() {
     router.push("/play?custom=1");
   };
 
+  const handleStoryImport = async (file: File | undefined) => {
+    setStoryImportError(null);
+    if (!file) return;
+    if (file.size <= 0) {
+      setStoryImportError("这个剧情文件是空的。");
+      return;
+    }
+    const isJson = file.name.toLowerCase().endsWith(".json") || file.type === "application/json";
+    const maxImportBytes = isJson ? 12_000_000 : 13_000_000;
+    if (file.size > maxImportBytes) {
+      setStoryImportError("剧情文件太大，无法载入。");
+      return;
+    }
+    try {
+      let text: string;
+      if (isJson) {
+        text = await file.text();
+      } else {
+        const r = await fetch("/api/story-unpack", {
+          method: "POST",
+          body: await file.arrayBuffer(),
+        });
+        if (!r.ok) {
+          const j = (await r.json().catch(() => ({}))) as { error?: string };
+          throw new Error(j.error ?? "剧情文件解包失败。");
+        }
+        const j = (await r.json()) as { docStr?: unknown };
+        if (typeof j.docStr !== "string") throw new Error("剧情文件解包失败。");
+        text = j.docStr;
+      }
+      const doc = parseStoryShareDoc(JSON.parse(text));
+      window.sessionStorage.setItem(STORY_SHARE_STORAGE_KEY, JSON.stringify(doc));
+      router.push("/play?share=1");
+    } catch (e) {
+      setStoryImportError(e instanceof Error ? e.message : "剧情文件解析失败。");
+    } finally {
+      if (storyImportRef.current) storyImportRef.current.value = "";
+    }
+  };
+
   const stories = STORIES[galleryGender];
   const imgPrefix = galleryGender === "女性向" ? "f" : "m";
   const analyticsOn = Boolean(
@@ -1510,7 +1553,29 @@ export default function HomePage() {
                 开始
                 <i className="fa-solid fa-arrow-right text-xs" />
               </button>
+              <input
+                ref={storyImportRef}
+                type="file"
+                accept=".infiplot,application/octet-stream,.json,application/json"
+                className="hidden"
+                onChange={(e) => void handleStoryImport(e.target.files?.[0])}
+              />
+              <button
+                type="button"
+                onClick={() => storyImportRef.current?.click()}
+                className="group absolute right-[-2.25rem] bottom-2 md:bottom-3 inline-flex items-center justify-center rounded-sm border border-clay-900/20 px-2 py-2 md:py-2.5 text-clay-400 transition-colors hover:border-ember-500 hover:text-ember-500"
+              >
+                <i className="fa-solid fa-file-import text-sm" />
+                <span className="pointer-events-none absolute -bottom-8 left-1/2 -translate-x-1/2 whitespace-nowrap rounded bg-clay-900 px-2 py-1 font-sans text-[11px] text-cream-50 opacity-0 transition-opacity group-hover:opacity-100">
+                  载入剧情
+                </span>
+              </button>
             </div>
+            {storyImportError && (
+              <p className="mt-2 text-right text-xs leading-relaxed text-ember-500">
+                {storyImportError}
+              </p>
+            )}
             {prompt && (
               <p className="mt-2 text-right text-xs text-clay-400">
                 Enter 发送 · Shift+Enter 换行
