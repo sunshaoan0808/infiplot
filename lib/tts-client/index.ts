@@ -13,9 +13,14 @@ function isStepfun(cfg: TtsConfig): boolean {
 export async function provisionVoice(
   cfg: TtsConfig,
   description: string,
+  // Optional per-character salt (typically the character name). Only
+  // StepFun's preset-picker uses it — Xiaomi voicedesign mints a unique
+  // clip per call regardless. Threading it through keeps the API uniform
+  // and prevents archetype collisions on the StepFun path.
+  salt?: string,
 ): Promise<CharacterVoice> {
   return isStepfun(cfg)
-    ? stepfunProvision(cfg, description)
+    ? stepfunProvision(cfg, description, salt)
     : xiaomiProvision(cfg, description);
 }
 

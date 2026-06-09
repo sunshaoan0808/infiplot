@@ -115,19 +115,24 @@ export function pickStepfunVoiceId(description: string, salt = ""): string {
 
   // Pick from the top 3 (or fewer) deterministically by hashing the
   // description + an optional salt (charName) so two characters that share
-  // archetype keywords don't collapse onto the identical preset.
+  // archetype keywords don't collapse onto the identical preset. Hash the
+  // lowercased desc so case differences in the same description don't pick
+  // different presets (scoring above is already case-insensitive).
   const top = scored.slice(0, Math.min(3, scored.length));
-  const idx = hashStr(description + "|" + salt) % top.length;
+  const idx = hashStr(desc + "|" + salt.toLowerCase()) % top.length;
   return top[idx]!.v.id;
 }
 
 // Provision is synchronous / no network — StepFun has no voicedesign equivalent.
 // We mirror xiaomiProvision's async signature so the router stays uniform.
+// The optional `salt` (character name) spreads two characters that share
+// archetype keywords across the top-N candidate presets.
 export async function stepfunProvision(
   cfg: TtsConfig,
   description: string,
+  salt?: string,
 ): Promise<CharacterVoice> {
-  const voiceId = pickStepfunVoiceId(description);
+  const voiceId = pickStepfunVoiceId(description, salt);
   return {
     provider: "stepfun",
     voiceId,
