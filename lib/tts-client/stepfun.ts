@@ -68,14 +68,16 @@ function hashStr(s: string): number {
 }
 
 function detectGender(desc: string): "male" | "female" {
-  // Female signals (broader cast — galgame skews toward female NPCs).
-  if (/女性|女声|少女|姐姐|妹妹|熟女|御姐|阿姨|奶奶|女孩|姑娘|大妈|女子|女生|女士|她|小姐/.test(desc)) {
+  if (/女性|女声|少女|姐姐|妹妹|熟女|御姐|阿姨|奶奶|女孩|姑娘|大妈|女子|女生|女士|小姐/.test(desc)) {
     return "female";
   }
-  if (/男性|男声|少年|青年|大叔|哥哥|弟弟|男人|男孩|大爷|爷爷|男子|男生|先生|他|公子|师傅/.test(desc)) {
+  if (/男性|男声|少年|青年|大叔|哥哥|弟弟|男人|男孩|大爷|爷爷|男子|男生|先生|公子|师傅/.test(desc)) {
     return "male";
   }
-  // No strong signal: default female (matches the catalog's center of mass).
+  // Weak signals: single-char pronouns checked last to avoid false positives
+  // on compound words like "其他" (other) or "她们" (they-fem).
+  if (/她/.test(desc)) return "female";
+  if (/他/.test(desc)) return "male";
   return "female";
 }
 
