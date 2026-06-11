@@ -980,18 +980,30 @@ function StyleModal({
     try {
       const resized = await resizeImageToDataUrl(file);
       const modelCfg = readStoredModelConfig();
-      if (!modelCfg) {
-        throw new Error("请先点击首页右上角的「模型设置」配置视觉模型参数");
+      let stylePrompt: string;
+      if (modelCfg) {
+        const config = resolveEngineConfig(modelCfg, null);
+        const raw = await analyzeImageDataUrl(config.vision, resized, STYLE_EXTRACTION_PROMPT);
+        let parsed: { stylePrompt?: string };
+        try {
+          parsed = JSON.parse(raw);
+        } catch {
+          parsed = { stylePrompt: raw };
+        }
+        stylePrompt = (parsed.stylePrompt ?? "").trim();
+      } else {
+        const r = await fetch("/api/parse-style-image", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ imageDataUrl: resized }),
+        });
+        if (!r.ok) {
+          const data = await r.json().catch(() => ({}));
+          throw new Error(data.error || `HTTP ${r.status}`);
+        }
+        const data = (await r.json()) as { stylePrompt?: string };
+        stylePrompt = (data.stylePrompt ?? "").trim();
       }
-      const config = resolveEngineConfig(modelCfg, null);
-      const raw = await analyzeImageDataUrl(config.vision, resized, STYLE_EXTRACTION_PROMPT);
-      let parsed: { stylePrompt?: string };
-      try {
-        parsed = JSON.parse(raw);
-      } catch {
-        parsed = { stylePrompt: raw };
-      }
-      const stylePrompt = (parsed.stylePrompt ?? "").trim();
       if (!stylePrompt) throw new Error("视觉模型返回了空的风格描述");
       setDraft(stylePrompt);
       setCustomStyleRefImage(resized);

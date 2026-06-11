@@ -34,14 +34,12 @@ import {
   visionDecide,
   classifyFreeform,
   requestInsertBeat,
-} from "@infiplot/engine";
-import { readStoredModelConfig, resolveEngineConfig } from "@/lib/clientModelConfig";
+} from "@/lib/engineClient";
 import type {
   Beat,
   BeatChoice,
   Character,
   CharacterVoice,
-  EngineConfig,
   Orientation,
   Scene,
   SceneExit,
@@ -53,17 +51,6 @@ import type {
 import { track } from "@/lib/analytics";
 
 const MUTED_STORAGE_KEY = "infiplot:muted";
-
-// ── Client-side engine config builder ──────────────────────────────────
-// Reads model credentials from localStorage and assembles the EngineConfig
-// that the engine expects. Called at the point of use (inside async handlers)
-// so mid-session settings changes are picked up immediately.
-function buildEngineConfig(): EngineConfig {
-  const modelCfg = readStoredModelConfig();
-  const ttsCfg = loadClientTtsConfig();
-  return resolveEngineConfig(modelCfg, ttsCfg);
-}
-
 
 // Mobile-portrait users get a 9:16 scene image painted for them; everyone else
 // (desktop, tablet, mobile-landscape) keeps the 16:9 landscape image. Only a
@@ -379,8 +366,7 @@ function prefetchScenePath(
   const specSession = buildSpeculativeSession(baseSession, steps);
   const abort = new AbortController();
   const promise = (async () => {
-    const config = buildEngineConfig();
-    const data = await requestScene(config, { session: specSession, clientTts });
+    const data = await requestScene({ session: specSession, clientTts });
     if (abort.signal.aborted) throw new Error("aborted");
 
     // Record this resolved alternate for the gallery export. Key is
@@ -1186,8 +1172,7 @@ function PlayInner() {
           },
         )
       : (async () => {
-          const config = buildEngineConfig();
-          const data = await startSession(config, {
+          const data = await startSession({
             ...livePayload!,
             clientTts: !!byoTtsRef.current,
           });
@@ -1569,8 +1554,7 @@ function PlayInner() {
     clearPool(poolRef.current);
 
     const promise = (async () => {
-      const config = buildEngineConfig();
-      const data = await requestScene(config, {
+      const data = await requestScene({
         session: specSession,
         clientTts: !!byoTtsRef.current,
       });
@@ -1592,8 +1576,7 @@ function PlayInner() {
     setPhase("vision-thinking");
 
     try {
-      const config = buildEngineConfig();
-      const decision = await classifyFreeform(config, {
+      const decision = await classifyFreeform({
         session,
         freeformText: text,
       });
@@ -1601,14 +1584,11 @@ function PlayInner() {
       if (decision.classify === "insert-beat") {
         // Interactive beat: NPC responds to the player's action, scene stays
         setPhase("inserting-beat");
-        const { partial, characters: insertChars } = await requestInsertBeat(
-          config,
-          {
-            session,
-            freeformAction: decision.freeformAction,
-            clientTts: !!byoTtsRef.current,
-          },
-        );
+        const { partial, characters: insertChars } = await requestInsertBeat({
+          session,
+          freeformAction: decision.freeformAction,
+          clientTts: !!byoTtsRef.current,
+        });
 
         const fromBeatId =
           currentBeatRef.current?.id ?? currentScene.entryBeatId;
@@ -1671,8 +1651,7 @@ function PlayInner() {
       };
 
       const promise = (async () => {
-        const config = buildEngineConfig();
-        const data = await requestScene(config, {
+        const data = await requestScene({
           session: specSession,
           clientTts: !!byoTtsRef.current,
         });
@@ -1695,8 +1674,7 @@ function PlayInner() {
 
     try {
       const annotatedImageBase64 = await annotateClick(imageUrl, click);
-      const config = buildEngineConfig();
-      const decision = await visionDecide(config, {
+      const decision = await visionDecide({
         session,
         annotatedImageBase64,
       });
@@ -1704,14 +1682,11 @@ function PlayInner() {
 
       if (decision.classify === "insert-beat") {
         setPhase("inserting-beat");
-        const { partial, characters: insertChars } = await requestInsertBeat(
-          config,
-          {
-            session,
-            freeformAction: decision.intent.freeformAction,
-            clientTts: !!byoTtsRef.current,
-          },
-        );
+        const { partial, characters: insertChars } = await requestInsertBeat({
+          session,
+          freeformAction: decision.intent.freeformAction,
+          clientTts: !!byoTtsRef.current,
+        });
 
         const fromBeatId =
           currentBeatRef.current?.id ?? currentScene.entryBeatId;
@@ -1776,8 +1751,7 @@ function PlayInner() {
         clearPool(poolRef.current);
 
         const promise = (async () => {
-          const config = buildEngineConfig();
-          const data = await requestScene(config, {
+          const data = await requestScene({
             session: specSession,
             clientTts: !!byoTtsRef.current,
           });
