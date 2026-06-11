@@ -1796,21 +1796,23 @@ export default function HomePage() {
           initialVisionClickEnabled={visionClickEnabled}
           onClose={() => setSettingsOpen(false)}
           onSaved={(settings) => {
-            setTtsConfigured(settings.ttsConfigured);
             setPlayerName(settings.playerName);
             setVisionClickEnabled(settings.visionClickEnabled);
-            if (settings.ttsConfigured && voiceRow >= 0) {
-              const onIdx = OPTS[voiceRow]!.items.indexOf("开启");
-              if (onIdx >= 0)
-                setSel((s) => s.map((v, j) => (j === voiceRow ? onIdx : v)));
-            }
           }}
         />
       )}
       {modelSettingsOpen && (
         <ModelSettingsModal
           onClose={() => setModelSettingsOpen(false)}
-          onSaved={() => setModelSettingsOpen(false)}
+          onSaved={(settings) => {
+            setTtsConfigured(settings.ttsConfigured);
+            if (settings.ttsConfigured && voiceRow >= 0) {
+              const onIdx = OPTS[voiceRow]!.items.indexOf("开启");
+              if (onIdx >= 0)
+                setSel((s) => s.map((v, j) => (j === voiceRow ? onIdx : v)));
+            }
+            setModelSettingsOpen(false);
+          }}
         />
       )}
     </div>
