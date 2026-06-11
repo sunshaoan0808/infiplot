@@ -53,7 +53,6 @@ export function readStoredVisionClick(): boolean {
 const PROVIDER_OPTIONS: { value: ProviderProtocol | ""; label: string }[] = [
   { value: "", label: "自动推断（推荐）" },
   { value: "openai_compatible", label: "OpenAI Compatible" },
-  { value: "openai", label: "OpenAI (Native)" },
   { value: "runware", label: "Runware" },
 ];
 
