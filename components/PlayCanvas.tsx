@@ -349,10 +349,20 @@ export function PlayCanvas({
   // the 9:16 image matches the exact device/window — no letterbox. Landscape
   // keeps the prior contain-style sizing so the full 16:9 frame stays visible.
   const sizeStyle: React.CSSProperties = portrait
-    ? { width: "100vw", height: "100dvh", objectFit: "cover" }
+    ? { width: "100%", height: "100%", objectFit: "cover" }
     : fullViewport
-      ? { maxWidth: "100vw", maxHeight: "100dvh" }
-      : { maxWidth: "96vw", maxHeight: "calc(100dvh - 200px)" };
+      ? { width: "100%", height: "100%", objectFit: "contain" }
+      : { width: "100%", height: "100%" };
+
+  const canvasStyle: React.CSSProperties = portrait
+    ? { width: "100vw", height: "100dvh" }
+    : {
+        width: fullViewport
+          ? "min(100vw, calc(100dvh * 16 / 9))"
+          : "min(96vw, calc((100dvh - 200px) * 16 / 9))",
+        aspectRatio: "16 / 9",
+        maxHeight: fullViewport ? "100dvh" : "calc(100dvh - 200px)",
+      };
 
   const placeholderStyle: React.CSSProperties = portrait
     ? { width: "100vw", height: "100dvh" }
@@ -382,19 +392,14 @@ export function PlayCanvas({
 
       {imageUrl ? (
         <div
-          className="relative inline-block"
-          style={{ boxShadow: fullViewport ? "none" : SHADOW }}
+          className="relative"
+          style={{ ...canvasStyle, boxShadow: fullViewport ? "none" : SHADOW }}
         >
-          {/* Background image — Runware CDN URL or data URI (mock mode).
-              The width/height attributes give the browser the intrinsic aspect
-              ratio (1792:1024 landscape / 1024:1792 portrait) so that, while the
-              bytes are still arriving from the CDN, the <img> reserves the right
-              box instead of collapsing to a one-pixel sliver — fixes the
-              "等很久 → 一根线 → 突然出图" jank. Landscape uses w-auto/h-auto +
-              maxWidth/maxHeight (contain); portrait switches sizeStyle to
-              100vw×100dvh with object-fit:cover (full-bleed, no letterbox). */}
+          {/* The stable wrapper owns the frame size. Keeping overlay geometry
+              independent of <img> decode/source swaps prevents controls from
+              jumping when a newly generated image is committed. */}
           <img
-            key={imageUrl.slice(-48)}
+            key={imageUrl}
             ref={imgRef}
             src={imageUrl}
             width={intrinsicW}
@@ -402,7 +407,7 @@ export function PlayCanvas({
             alt="Generated scene"
             onClick={handleImageClick}
             draggable={false}
-            className={`block ${portrait ? "" : "w-auto h-auto"} select-none animate-fade-in transition-opacity duration-700 ease-out ${
+            className={`block select-none animate-fade-in transition-opacity duration-700 ease-out ${
               imageClickable ? "cursor-pointer" : interactive ? "cursor-default" : "cursor-wait"
             } ${dimmed ? "opacity-40" : "opacity-100"}`}
             style={sizeStyle}
