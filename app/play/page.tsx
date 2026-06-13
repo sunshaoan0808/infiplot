@@ -85,6 +85,12 @@ const useIsomorphicLayoutEffect =
 // 20s + the <img> aspect-video fallback together remove that failure mode.
 const IMAGE_PRELOAD_TIMEOUT_MS = 20000;
 
+// After blob/preload resolves the <img> still needs to decode the bitmap.
+// This gate keeps the "transitioning" overlay visible until decode fires,
+// so the user never sees progressive paint or a blank flash. 3s is generous
+// (decode is typically <100ms for a locally-held blob).
+const IMAGE_READY_TIMEOUT_MS = 3000;
+
 // ──────────────────────────────────────────────────────────────────────
 //  Two ways an <img> gets its pixels, picked per-URL by shouldProxy():
 //
@@ -370,9 +376,10 @@ function prefetchScenePath(
 
   const specSession = buildSpeculativeSession(baseSession, steps);
   const abort = new AbortController();
+  const prefetchT0 = Date.now();
   const promise = (async () => {
     const data = await requestScene({ session: specSession, clientTts });
-    if (abort.signal.aborted) throw new Error("aborted");
+    if (abort.signal.aborted) throw new DOMException("aborted", "AbortError");
 
     // Record this resolved alternate for the gallery export. Key is
     // (parent scene id at the choice point) : (choice id). Includes the
@@ -428,7 +435,20 @@ function prefetchScenePath(
     return data;
   })();
 
-  promise.catch(() => {});
+  promise.catch((e) => {
+    if ((e as { name?: string }).name === "AbortError") return;
+    const { kind, http_status } = classifyError(e);
+    track("play_error", {
+      source: "prefetch" as const,
+      kind,
+      http_status,
+      orientation: baseSession.orientation ?? "landscape",
+      connection: getConnectionType(),
+      was_hidden: typeof document !== "undefined" && document.visibilityState === "hidden",
+      scene_index: baseSession.history.length,
+      elapsed_bucket: elapsedBucket(prefetchT0),
+    });
+  });
   pool.set(key, { promise, abort });
 }
 
@@ -492,6 +512,51 @@ async function resolveByoVoice(
     cache.delete(speaker.name); // failed provision — let a later beat retry
     throw e;
   }
+}
+
+// ── Error observability helpers ────────────────────────────────────────
+
+type ErrorSource = "scene" | "start" | "vision" | "insert_beat" | "freeform" | "prefetch";
+
+function classifyError(
+  e: unknown,
+  res?: Response,
+): { kind: "network" | "timeout" | "http_5xx" | "http_4xx" | "abort" | "unknown"; http_status: number } {
+  if (res) {
+    const s = res.status;
+    if (s >= 500) return { kind: "http_5xx", http_status: s };
+    if (s >= 400) return { kind: "http_4xx", http_status: s };
+  }
+  if (e instanceof Error) {
+    if (e.name === "AbortError") return { kind: "abort", http_status: 0 };
+    if (e instanceof TypeError && /fetch|network/i.test(e.message))
+      return { kind: "network", http_status: 0 };
+    if (/timeout/i.test(e.message)) return { kind: "timeout", http_status: 0 };
+    const httpMatch = e.message.match(/^HTTP (\d+)$/);
+    if (httpMatch) {
+      const s = Number(httpMatch[1]);
+      if (s >= 500) return { kind: "http_5xx", http_status: s };
+      if (s >= 400) return { kind: "http_4xx", http_status: s };
+    }
+  }
+  return { kind: "unknown", http_status: 0 };
+}
+
+function elapsedBucket(startMs: number): "<5s" | "5-30s" | "30-60s" | "60-120s" | "120s+" {
+  const s = (Date.now() - startMs) / 1000;
+  if (s < 5) return "<5s";
+  if (s < 30) return "5-30s";
+  if (s < 60) return "30-60s";
+  if (s < 120) return "60-120s";
+  return "120s+";
+}
+
+function getConnectionType(): "4g" | "3g" | "2g" | "slow-2g" | "unknown" {
+  const nav = typeof navigator !== "undefined" ? navigator : undefined;
+  const conn = (nav as { connection?: { effectiveType?: string } } | undefined)?.connection;
+  const et = conn?.effectiveType;
+  if (et === "4g" || et === "3g" || et === "2g" || et === "slow-2g") return et;
+  return "unknown";
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -581,6 +646,7 @@ function PlayInner() {
   // 首页「语音配音 关闭」会把 muted 初值置为 true（见上方 useState 初始化），
   // 不再单独维护 audioEnabledRef —— 单一来源避免两个 flag 漂移。
   const mutedRef = useRef<boolean>(muted);
+  const phaseRef = useRef<Phase>(phase);
 
   // Resolved bring-your-own Xiaomi TTS config (region preset + key), read once
   // from localStorage. When non-null, the browser provisions + synths voices
@@ -617,6 +683,27 @@ function PlayInner() {
   // not the blob URL, because blobUrlCache is keyed by original URL.
   const lastImageOriginalUrlRef = useRef<string | null>(null);
 
+  // Image-ready gate: keeps the "transitioning" overlay visible until the
+  // actual <img> element has decoded its bitmap, so the user never sees
+  // progressive paint or a blank flash between scenes.
+  const imageReadyResolverRef = useRef<(() => void) | null>(null);
+  function waitForImageReady(): Promise<void> {
+    return new Promise<void>((resolve) => {
+      let settled = false;
+      const done = () => {
+        if (settled) return;
+        settled = true;
+        imageReadyResolverRef.current = null;
+        resolve();
+      };
+      imageReadyResolverRef.current = done;
+      setTimeout(done, IMAGE_READY_TIMEOUT_MS);
+    });
+  }
+  const handleImageReady = useCallback(() => {
+    imageReadyResolverRef.current?.();
+  }, []);
+
   const currentBeat = useMemo<Beat | null>(() => {
     if (!currentScene || !currentBeatId) return null;
     return currentScene.beats.find((b) => b.id === currentBeatId) ?? null;
@@ -642,8 +729,25 @@ function PlayInner() {
     mutedRef.current = muted;
   }, [muted]);
   useEffect(() => {
+    phaseRef.current = phase;
+  }, [phase]);
+  useEffect(() => {
     setVisionClickEnabled(readStoredVisionClick());
   }, []);
+
+  function trackPlayError(source: ErrorSource, e: unknown, startMs: number, res?: Response) {
+    const { kind, http_status } = classifyError(e, res);
+    track("play_error", {
+      source,
+      kind,
+      http_status,
+      orientation,
+      connection: getConnectionType(),
+      was_hidden: document.visibilityState === "hidden",
+      scene_index: session?.history.length ?? 0,
+      elapsed_bucket: elapsedBucket(startMs),
+    });
+  }
 
   // Coarse liveness ping for active-time analytics. /play is a single SPA
   // route, so page views alone read as ~0 duration; a 30s heartbeat (only
@@ -658,6 +762,20 @@ function PlayInner() {
       if (document.visibilityState === "visible") track("play_heartbeat");
     }, 30_000);
     return () => window.clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    function onVisChange() {
+      if (document.visibilityState === "hidden") {
+        const p = phaseRef.current;
+        track("play_visibility_lost", {
+          phase: p,
+          had_pending_fetch: p !== "ready",
+        });
+      }
+    }
+    document.addEventListener("visibilitychange", onVisChange);
+    return () => document.removeEventListener("visibilitychange", onVisChange);
   }, []);
 
   // Whenever currentBeatId changes, append it to visited (skip consecutive dups)
@@ -1180,6 +1298,7 @@ function PlayInner() {
 
     if (isShare) {
       (async () => {
+        const t0 = Date.now();
         try {
           const raw = sessionStorage.getItem(STORY_SHARE_STORAGE_KEY);
           if (!raw) throw new Error("没有找到要载入的剧情文件。");
@@ -1232,11 +1351,16 @@ function PlayInner() {
           setSession(initial);
           setCurrentScene(first.scene);
           setCurrentBeatId(first.scene.entryBeatId);
+          const ready = waitForImageReady();
           setImageUrl(blobUrl);
+          await ready;
           setPhase("ready");
           track("scene_reached", { scene_index: 1 });
         } catch (e) {
-          if (!handleAuthError(e)) setError(e instanceof Error ? e.message : String(e));
+          if (!handleAuthError(e)) {
+            trackPlayError("start", e, t0);
+            setError(e instanceof Error ? e.message : String(e));
+          }
         }
       })();
       return;
@@ -1306,6 +1430,7 @@ function PlayInner() {
       ? "firstact-portrait"
       : "firstact";
 
+    const startT0 = Date.now();
     const fetchStart: Promise<PrebakedFirstAct> = cardName
       ? fetch(`/home/${firstactDir}/${encodeURIComponent(cardName)}.json`).then(
           async (r) => {
@@ -1367,14 +1492,17 @@ function PlayInner() {
         setSession(initial);
         setCurrentScene(data.scene);
         setCurrentBeatId(data.scene.entryBeatId);
+        const ready = waitForImageReady();
         setImageUrl(blobUrl);
-        // beatAudioMap is populated lazily by the per-beat fetch effect once
-        // currentScene becomes non-null (see fetchBeatAudio).
+        await ready;
         setPhase("ready");
         track("scene_reached", { scene_index: initial.history.length });
       })
       .catch((e) => {
-        if (!handleAuthError(e)) setError(String(e));
+        if (!handleAuthError(e)) {
+          trackPlayError("start", e, startT0);
+          setError(String(e));
+        }
       });
   }, [params, router]);
 
@@ -1445,6 +1573,7 @@ function PlayInner() {
     exitLabel: string,
     retry?: () => void,
   ) {
+    const sceneT0 = Date.now();
     setPhase("transitioning");
     setPendingClick(null);
     try {
@@ -1491,9 +1620,10 @@ function PlayInner() {
       setSession(newSession);
       setCurrentScene(result.scene);
       setCurrentBeatId(result.scene.entryBeatId);
+      const ready = waitForImageReady();
       setImageUrl(blobUrl);
-      // beatAudioMap reset + per-beat fetches kicked off by the scene effect.
       setLastExitLabel(exitLabel);
+      await ready;
       setPhase("ready");
       track("scene_reached", { scene_index: newSession.history.length });
     } catch (e) {
@@ -1501,7 +1631,10 @@ function PlayInner() {
         setPhase("ready");
         return;
       }
-      if (!handleAuthError(e, retry)) setError(String(e));
+      if (!handleAuthError(e, retry)) {
+        trackPlayError("scene", e, sceneT0);
+        setError(String(e));
+      }
       setPhase("ready");
     }
   }
@@ -1530,6 +1663,7 @@ function PlayInner() {
     }
 
     void (async () => {
+      const replayT0 = Date.now();
       setPhase("transitioning");
       setPendingClick(null);
       try {
@@ -1569,12 +1703,17 @@ function PlayInner() {
         setSession(nextSession);
         setCurrentScene(next.scene);
         setCurrentBeatId(next.scene.entryBeatId);
+        const ready = waitForImageReady();
         setImageUrl(blobUrl);
         setLastExitLabel(choice.label);
+        await ready;
         setPhase("ready");
         track("scene_reached", { scene_index: nextSession.history.length });
       } catch (e) {
-        if (!handleAuthError(e)) setError(e instanceof Error ? e.message : String(e));
+        if (!handleAuthError(e)) {
+          trackPlayError("scene", e, replayT0);
+          setError(e instanceof Error ? e.message : String(e));
+        }
         setPhase("ready");
       }
     })();
@@ -1730,6 +1869,7 @@ function PlayInner() {
       text_length: text.length,
     });
 
+    const freeformT0 = Date.now();
     setPhase("vision-thinking");
 
     try {
@@ -1824,7 +1964,10 @@ function PlayInner() {
         () => onFreeformInput(text),
       );
     } catch (e) {
-      if (!handleAuthError(e, () => onFreeformInput(text))) setError(String(e));
+      if (!handleAuthError(e, () => onFreeformInput(text))) {
+        trackPlayError("freeform", e, freeformT0);
+        setError(String(e));
+      }
       setPhase("ready");
     }
   }
@@ -1832,6 +1975,7 @@ function PlayInner() {
   async function onBackgroundClick(click: { x: number; y: number }) {
     if (phase !== "ready" || !session || !currentScene || !imageUrl) return;
     if (replayActiveRef.current) detachRecordedReplay();
+    const visionT0 = Date.now();
     setPhase("vision-thinking");
     setPendingClick(click);
 
@@ -1930,7 +2074,10 @@ function PlayInner() {
         );
       }
     } catch (e) {
-      if (!handleAuthError(e, () => onBackgroundClick(click))) setError(String(e));
+      if (!handleAuthError(e, () => onBackgroundClick(click))) {
+        trackPlayError("vision", e, visionT0);
+        setError(String(e));
+      }
       setPendingClick(null);
       setPhase("ready");
     }
@@ -1993,6 +2140,7 @@ function PlayInner() {
           playerName={session?.playerName}
           visionClickEnabled={visionClickEnabled}
           onOpenSettings={() => setSettingsOpen(true)}
+          onImageReady={handleImageReady}
           fullViewport
           dialogueHistory={dialogueHistory}
           disabledChoiceIds={disabledReplayChoiceIds}
@@ -2088,6 +2236,7 @@ function PlayInner() {
           playerName={session?.playerName}
           visionClickEnabled={visionClickEnabled}
           onOpenSettings={() => setSettingsOpen(true)}
+          onImageReady={handleImageReady}
           dialogueHistory={dialogueHistory}
           disabledChoiceIds={disabledReplayChoiceIds}
           freeformDisabled={replayLocked}
