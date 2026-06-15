@@ -1478,16 +1478,24 @@ function PlayInner() {
     // re-bootstrapping from `?card=…` (which would restart the story). OTP
     // login never writes a snapshot — its onSuccess retry keeps state
     // in-memory.
-    if (AUTH_ENABLED) {
-      // Let the async resume run; on failure (no snapshot / not signed in /
-      // corrupt) it relinquishes the slot so the normal bootstrap below
-      // re-runs. Either way return here — the sync body must not run while the
-      // OAuth return is being reconciled.
+    //
+    // Peek before awaiting: when there's no snapshot (the common case —
+    // normal card/preset/custom entry), fall straight through to the
+    // bootstrap below. Only when a snapshot exists do we enter the async
+    // gate, which itself removes the entry. This keeps the no-snapshot path
+    // off the retryBootstrap re-trigger loop entirely.
+    if (
+      AUTH_ENABLED &&
+      sessionStorage.getItem(PLAY_RESUME_KEY) !== null
+    ) {
       void (async () => {
         const snap = await consumeResumeSnapshot<PlayResumeSnapshot>(
           PLAY_RESUME_KEY,
         );
         if (!snap) {
+          // Snapshot existed but user isn't signed in / payload corrupt →
+          // consumeResumeSnapshot already removed it. Relinquish the slot so
+          // the normal bootstrap below re-runs on the next effect cycle.
           startedRef.current = false;
           setRetryBootstrap((n) => n + 1);
           return;

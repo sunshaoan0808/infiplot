@@ -1992,10 +1992,16 @@ export default function HomePage() {
               start();
             }
           }}
-          // Snapshot the form the instant the OAuth redirect begins — the
-          // round-trip unmounts the page and discards in-memory state. Fires
-          // only for Google/GitHub (signInWithOAuth), not OTP.
-          onBeforeOAuth={persistPendingStart}
+          //
+          // Only snapshot when the user is mid-start: the OAuth redirect also
+          // fires for bare logins (UserChip / StyleModal onRequireAuth), where
+          // the user just wants to sign in — not kick off a game. Guarding on
+          // pendingAction keeps bare logins from auto-starting a session on
+          // return. (start() sets pendingAction="start" right before opening
+          // this modal.)
+          onBeforeOAuth={() => {
+            if (pendingAction === "start") persistPendingStart();
+          }}
         />
       )}
     </div>
