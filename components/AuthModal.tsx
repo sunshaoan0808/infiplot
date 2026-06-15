@@ -40,7 +40,14 @@ export function AuthModal({
       setError("");
       // Snapshot before navigating away — the redirect below unmounts the app,
       // so any host state must be persisted to sessionStorage *now*.
-      onBeforeOAuth?.();
+      // Non-fatal: if the snapshot fails (e.g. sessionStorage is blocked in
+      // privacy mode), the OAuth flow still proceeds — the user just won't
+      // have their in-progress state restored on return.
+      try {
+        onBeforeOAuth?.();
+      } catch {
+        /* snapshot failure is non-fatal */
+      }
       const supabase = createClient();
       const { error: oauthError } = await supabase.auth.signInWithOAuth({
         provider,

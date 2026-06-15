@@ -59,11 +59,28 @@ export function writeResumeSnapshot<T>(
 // login doesn't resurrect a half-flow). Always removes the entry — either it's
 // consumed here, or it's stale and must not linger. Returns null when there's
 // nothing to resume, the user isn't signed in, or the payload is corrupt.
+//
+// `removeItem` intentionally runs before `isAuthed()` so that a network error
+// during the auth check does not leave a zombie snapshot behind. Without this
+// ordering, callers that guard on the snapshot's presence (play-page bootstrap)
+// would re-enter this path on every effect cycle, producing an infinite retry
+// loop. Dropping the snapshot on a transient network glitch is an acceptable
+// trade-off — the worst case is the user lands on the first scene instead of
+// resuming mid-story, which is the same experience as before this feature.
 export async function consumeResumeSnapshot<T>(key: string): Promise<T | null> {
   const raw = sessionStorage.getItem(key);
   if (!raw) return null;
   sessionStorage.removeItem(key);
-  if (!(await isAuthed())) return null;
+  let authed: boolean;
+  try {
+    authed = await isAuthed();
+  } catch {
+    // Network / unexpected error during auth check. Snapshot already removed
+    // (prevents the caller's retry loop); return null so callers fall back to
+    // their default path (normal bootstrap).
+    return null;
+  }
+  if (!authed) return null;
   try {
     return JSON.parse(raw) as T;
   } catch {
