@@ -9,9 +9,16 @@ type AuthStep = "pick" | "email-input" | "otp-verify";
 export function AuthModal({
   onClose,
   onSuccess,
+  onBeforeOAuth,
 }: {
   onClose: () => void;
   onSuccess: () => void;
+  // Fires synchronously before the OAuth full-page redirect (signInWithOAuth
+  // navigates the browser away, unmounting the whole React tree). Hosts that
+  // need to survive the round-trip (e.g. play page carrying in-memory game
+  // state) snapshot into sessionStorage here — sessionStorage.setItem is
+  // synchronous, so it completes before the navigation begins.
+  onBeforeOAuth?: () => void;
 }) {
   const [step, setStep] = useState<AuthStep>("pick");
   const [email, setEmail] = useState("");
@@ -31,6 +38,16 @@ export function AuthModal({
     async (provider: "google" | "github") => {
       setLoading(true);
       setError("");
+      // Snapshot before navigating away — the redirect below unmounts the app,
+      // so any host state must be persisted to sessionStorage *now*.
+      // Non-fatal: if the snapshot fails (e.g. sessionStorage is blocked in
+      // privacy mode), the OAuth flow still proceeds — the user just won't
+      // have their in-progress state restored on return.
+      try {
+        onBeforeOAuth?.();
+      } catch {
+        /* snapshot failure is non-fatal */
+      }
       const supabase = createClient();
       const { error: oauthError } = await supabase.auth.signInWithOAuth({
         provider,
@@ -43,7 +60,7 @@ export function AuthModal({
         setLoading(false);
       }
     },
-    [],
+    [onBeforeOAuth],
   );
 
   const handleSendOtp = useCallback(async () => {
