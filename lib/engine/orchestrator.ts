@@ -258,10 +258,13 @@ async function resolveVoice(
 ): Promise<CharacterVoice | undefined> {
   const serverStepfun = !!config.tts && isStepfun(config.tts);
   const voiceProvider = req.voice?.provider;
+  const voiceMatchesServer =
+    (voiceProvider === "stepfun" && serverStepfun) ||
+    (voiceProvider === "xiaomi" && !serverStepfun);
 
   // Fast path: the client sent a matching voice. (Also covers the legacy
   // xiaomi card + xiaomi server case where the 220KB was unavoidable anyway.)
-  if (req.voice && (voiceProvider === "stepfun") === serverStepfun) {
+  if (req.voice && voiceMatchesServer) {
     return req.voice;
   }
 

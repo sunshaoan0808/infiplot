@@ -23,11 +23,18 @@ export async function POST(req: Request) {
   // engine's resolveVoice re-provisions on a provider mismatch. We only
   // require the beat text + SOMETHING to synthesize from.
   const VALID_TTS_PROVIDERS = ["xiaomi", "stepfun"];
+  const hasInvalidVoiceProvider =
+    !!body.voice?.provider && !VALID_TTS_PROVIDERS.includes(body.voice.provider);
   const hasVoice =
     !!body.voice?.provider && VALID_TTS_PROVIDERS.includes(body.voice.provider);
   const hasFallback =
     !!body.stepfunVoiceId || !!body.voiceDescription;
-  if (!body.beat?.id || !body.beat?.line || (!hasVoice && !hasFallback)) {
+  if (
+    !body.beat?.id ||
+    !body.beat?.line ||
+    hasInvalidVoiceProvider ||
+    (!hasVoice && !hasFallback)
+  ) {
     return NextResponse.json(
       { error: "beat.id and beat.line are required, plus either voice.provider (xiaomi|stepfun) or stepfunVoiceId/voiceDescription" },
       { status: 400 },
