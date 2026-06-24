@@ -611,8 +611,8 @@ export async function directInsertBeat(
     }
     const choices = Array.isArray(parsed.choices)
       ? parsed.choices
-          .slice(0, 2)
           .filter((c) => c && typeof c.label === "string" && c.label.trim() && typeof c.effect === "string" && c.effect.trim())
+          .slice(0, 2)
           .map((c) => ({ label: c.label.trim(), effect: c.effect.trim() }))
       : undefined;
     return { beats, choices: choices?.length ? choices : undefined };
