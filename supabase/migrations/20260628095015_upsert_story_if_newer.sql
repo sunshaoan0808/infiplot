@@ -68,11 +68,12 @@ begin
            and excluded.updated_at > public.stories.updated_at)
   returning * into v_row;
 
-  -- v_row is populated on a fresh insert OR a winning update. It is NULL when
-  -- the row already existed AND the where-guard rejected the update (stale
-  -- write) — in that case return the current cloud row so the caller sees it
+  -- FOUND is the idiomatic PL/pgSQL test for whether RETURNING produced a row:
+  -- true on a fresh insert OR a winning update; false when the row already
+  -- existed AND the where-guard rejected the update (stale write). In the stale
+  -- case fall through and return the current cloud row so the caller sees it
   -- lost and can reconcile by pulling the newer cloud state.
-  if v_row.id is not null then
+  if found then
     return v_row;
   end if;
 

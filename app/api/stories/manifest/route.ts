@@ -15,5 +15,8 @@ export async function GET() {
   if (auth instanceof NextResponse) return auth;
 
   const items = await cloudStoryManifest();
-  return NextResponse.json({ items });
+  return NextResponse.json(
+    { items },
+    { headers: { "Cache-Control": "private, no-store" } },
+  );
 }

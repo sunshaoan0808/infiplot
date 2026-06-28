@@ -25,6 +25,7 @@ import {
   putSyncedRecord,
   markRecordSynced,
 } from "./localStore";
+import { idbGet, STORIES_STORE } from "./idb";
 import { coerceEpoch, type StoryRecord, type StorySyncMeta, type StorySyncEnvelope } from "./types";
 
 // Keep in lockstep with the pull route's MAX_PULL_IDS.
@@ -88,8 +89,8 @@ function recordToEnvelope(rec: StoryRecord): StorySyncEnvelope {
     sceneCount: rec.sceneCount ?? 0,
     rev: rec.rev ?? 1,
     session: rec.session,
-    updatedAt: coerceEpoch(rec.updatedAt, Date.now()),
-    deletedAt: rec.deletedAt == null ? null : coerceEpoch(rec.deletedAt, Date.now()),
+    updatedAt: coerceEpoch(rec.updatedAt, 0),
+    deletedAt: rec.deletedAt == null ? null : coerceEpoch(rec.deletedAt, 0),
   };
 }
 
@@ -105,7 +106,7 @@ async function pushOne(rec: StoryRecord): Promise<void> {
   const res = await pushBlob(recordToEnvelope(rec));
   if (!res) return; // network/auth failure → leave pending for next reconcile
   if (res.won) {
-    await markRecordSynced(rec.id, rec.rev ?? 1);
+    await markRecordSynced(rec.id, rec.rev ?? 1, coerceEpoch(rec.updatedAt, 0));
   } else if (res.stored) {
     await putSyncedRecord(res.stored); // we lost → adopt the newer cloud state
   }
@@ -177,7 +178,7 @@ async function reconcile(): Promise<void> {
   for (const rec of toDelete) {
     try {
       const ok = await pushDelete(rec.id, rec.rev ?? 1, coerceEpoch(rec.deletedAt, Date.now()));
-      if (ok) await markRecordSynced(rec.id, rec.rev ?? 1);
+      if (ok) await markRecordSynced(rec.id, rec.rev ?? 1, coerceEpoch(rec.updatedAt, 0));
       // !ok → cloud has a newer row; the next reconcile pulls it back.
     } catch {
       /* leave pending */
@@ -186,7 +187,7 @@ async function reconcile(): Promise<void> {
   // Mark already-consistent records synced.
   for (const rec of toMarkSynced) {
     try {
-      await markRecordSynced(rec.id, rec.rev ?? 1);
+      await markRecordSynced(rec.id, rec.rev ?? 1, coerceEpoch(rec.updatedAt, 0));
     } catch {
       /* best-effort */
     }
@@ -236,10 +237,10 @@ export async function pushDeletion(id: string): Promise<void> {
   if (!AUTH_ENABLED || !id) return;
   try {
     if (!(await isAuthed())) return;
-    const rec = (await listAllRecordsForSync()).find((r) => r.id === id);
+    const rec = await idbGet<StoryRecord>(STORIES_STORE, id);
     if (!rec || !rec.deletedAt) return; // not a tombstone / already gone
     const ok = await pushDelete(id, rec.rev ?? 1, coerceEpoch(rec.deletedAt, Date.now()));
-    if (ok) await markRecordSynced(id, rec.rev ?? 1);
+    if (ok) await markRecordSynced(id, rec.rev ?? 1, coerceEpoch(rec.updatedAt, 0));
   } catch {
     /* leave pending */
   }

@@ -251,10 +251,15 @@ export async function putSyncedRecord(
  *  the rev we pushed. A newer local edit (rev moved past what we pushed) is left
  *  pending so the next reconcile re-pushes the newer content. No-op if the
  *  record is gone or already synced (Req 8.1). */
-export async function markRecordSynced(id: string, rev: number): Promise<void> {
+export async function markRecordSynced(id: string, rev: number, updatedAt: number): Promise<void> {
   const rec = await idbGet<StoryRecord>(STORIES_STORE, id);
   if (!rec) return;
+  // Guard on BOTH rev and updatedAt. softDeleteStory bumps updatedAt WITHOUT
+  // bumping rev, so a same-rev-but-newer local tombstone produced while a push
+  // was in flight must NOT be marked synced by that older push's ack (it still
+  // owes a delete push). Symmetric with putSyncedRecord's concurrency guard.
   if ((rec.rev ?? 1) !== rev) return;
+  if (coerceEpoch(rec.updatedAt, 0) !== coerceEpoch(updatedAt, 0)) return;
   if (rec.syncState === "synced") return;
   await idbPut(STORIES_STORE, { ...rec, syncState: "synced" });
 }

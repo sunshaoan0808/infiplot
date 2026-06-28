@@ -36,10 +36,10 @@ async function postJson<T>(url: string, body: unknown): Promise<T | null> {
 export async function pullManifest(): Promise<StorySyncMeta[]> {
   if (!AUTH_ENABLED) return [];
   try {
-    const res = await fetch("/api/stories/manifest", { method: "GET" });
+    const res = await fetch("/api/stories/manifest", { method: "GET", cache: "no-store" });
     if (!res.ok) return [];
-    const data = (await res.json()) as { items?: StorySyncMeta[] };
-    return data.items ?? [];
+    const data = (await res.json()) as { items?: unknown };
+    return Array.isArray(data.items) ? (data.items as StorySyncMeta[]) : [];
   } catch {
     return [];
   }
@@ -48,11 +48,8 @@ export async function pullManifest(): Promise<StorySyncMeta[]> {
 /** Pull full envelopes for the given ids. [] on empty ids / failure / auth off. */
 export async function pullBlobs(ids: string[]): Promise<StorySyncEnvelope[]> {
   if (!AUTH_ENABLED || ids.length === 0) return [];
-  const data = await postJson<{ blobs?: StorySyncEnvelope[] }>(
-    "/api/stories/pull",
-    { ids },
-  );
-  return data?.blobs ?? [];
+  const data = await postJson<{ blobs?: unknown }>("/api/stories/pull", { ids });
+  return Array.isArray(data?.blobs) ? (data.blobs as StorySyncEnvelope[]) : [];
 }
 
 /** Push one envelope through the optimistic-concurrency RPC. Returns the

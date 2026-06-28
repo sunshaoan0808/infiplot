@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireUser } from "@/lib/supabase/guard";
 import { cloudSoftDeleteStory } from "@/lib/persistence/cloudStore";
-import { coerceEpoch } from "@/lib/persistence/types";
 
 export const runtime = "nodejs";
 
@@ -24,9 +23,16 @@ export async function POST(req: Request) {
   if (!id) {
     return NextResponse.json({ error: "missing id" }, { status: 400 });
   }
-  const rev = typeof body.rev === "number" ? body.rev : 1;
-  const deletedAt = coerceEpoch(body.deletedAt, Date.now());
+  // Validate rev/deletedAt as finite values (see push route rationale): reject
+  // bad input with 400 rather than letting NaN/Infinity reach the PostgREST
+  // filter or toISOString().
+  if (typeof body.rev !== "number" || !Number.isFinite(body.rev) || body.rev <= 0) {
+    return NextResponse.json({ error: "invalid rev" }, { status: 400 });
+  }
+  if (typeof body.deletedAt !== "number" || !Number.isFinite(body.deletedAt)) {
+    return NextResponse.json({ error: "invalid deletedAt" }, { status: 400 });
+  }
 
-  const ok = await cloudSoftDeleteStory(id, rev, deletedAt);
+  const ok = await cloudSoftDeleteStory(id, body.rev, body.deletedAt);
   return NextResponse.json({ ok });
 }
