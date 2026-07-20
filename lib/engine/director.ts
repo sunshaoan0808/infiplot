@@ -204,13 +204,40 @@ export async function directScene(
   const fusionUrl = process.env.FUSION_CORE_URL;
   if (fusionUrl) {
     try {
-      const res = await fetch(`${fusionUrl.replace(/\/$/, "")}/api/scene-result`, {
-        headers: { "Content-Type": "application/json" },
-      });
+      // 玩家本次选择（来自 session.history 最后一条的 exit）
+      const lastExit = session.history.at(-1)?.exit;
+      const choiceParam =
+        lastExit && lastExit.kind === "choice"
+          ? (lastExit as { label?: string; choiceId?: string }).label ??
+            (lastExit as { choiceId?: string }).choiceId ??
+            ""
+          : "";
+      const url = `${fusionUrl.replace(/\/$/, "")}/api/scene-result${
+        choiceParam ? `?choice=${encodeURIComponent(choiceParam)}` : ""
+      }`;
+      const res = await fetch(url, { headers: { "Content-Type": "application/json" } });
       if (res.ok) {
         const result = (await res.json()) as SceneResult;
-        console.log(`[directScene] Fusion Core 桥接成功：scene=${result.scene.id}, chars=${result.characters.length}`);
-        return result;
+        console.log(
+          `[directScene] Fusion Core 桥接成功：scene=${result.scene.id}, chars=${result.characters.length}${
+            choiceParam ? `, choice=${choiceParam}` : ""
+          }`,
+        );
+        // 用 Fusion Core 的 voiceDescription 走 InfiPlot 的 voice pipeline 真出声
+        // （novel-to-game 提供的角色声音描述 → InfiPlot provision 成真实 voice 对象）
+        const provisionedChars = await Promise.all(
+          result.characters.map(async (c) => {
+            if (!c.voiceDescription) return c;
+            const voice = await provisionCharacterVoice(
+              config,
+              c.voiceDescription,
+              c.name,
+              { stepfunVoiceId: c.stepfunVoiceId },
+            ).catch(() => null);
+            return { ...c, voice: voice ?? c.voice };
+          }),
+        );
+        return { ...result, characters: provisionedChars };
       }
       console.warn(`[directScene] Fusion Core 返回 ${res.status}，降级到原 pipeline`);
     } catch (err) {
