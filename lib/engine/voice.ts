@@ -4,7 +4,7 @@ import type { BeatAudio, CharacterVoice, TtsConfig } from "@infiplot/types";
 // Per-beat synth budget. MiMo's median synth is 3–7s; the tail can spike
 // to 30–70s under concurrent load. Capping here means a single bad beat
 // degrades to silent in <15s instead of blocking the whole UI flow.
-const SYNTH_TIMEOUT_MS = 15000;
+const SYNTH_TIMEOUT_MS = 30000;
 
 // Race the work against a timer; on either outcome clear the timer (otherwise
 // the success path leaks a 15s-pending reject closure into Node's timer heap,

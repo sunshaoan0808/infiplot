@@ -1,6 +1,5 @@
 import type { Metadata, Viewport } from "next";
 import { headers } from "next/headers";
-import { Cormorant_Garamond, Inter } from "next/font/google";
 import { Analytics } from "@/components/Analytics";
 import { LOCALES, DEFAULT_LOCALE, type Locale } from "@/lib/i18n/config";
 import { localePath } from "@/lib/i18n/navigation";
@@ -8,22 +7,8 @@ import { stripLocalePrefix } from "@/lib/i18n/navigation";
 import "@fortawesome/fontawesome-free/css/all.min.css";
 import "./globals.css";
 
-// Editorial fonts: drive tailwind `font-serif`/`font-sans` via
-// --font-serif / --font-sans across every page (home, /play, /new, CustomForm).
-const cormorant = Cormorant_Garamond({
-  subsets: ["latin"],
-  weight: ["300", "400", "500", "600"],
-  style: ["normal", "italic"],
-  variable: "--font-serif",
-  display: "swap",
-});
-
-const inter = Inter({
-  subsets: ["latin"],
-  weight: ["300", "400", "500"],
-  variable: "--font-sans",
-  display: "swap",
-});
+// Editorial fonts: --font-serif / --font-sans 在 globals.css 里定义（系统字体栈），
+// 避免构建时联网取 Google Fonts（构建环境无法访问外网字体 CDN）。
 
 export const metadata: Metadata = {
   title: "InfiPlot — AI 实时交互剧情游戏",
@@ -58,7 +43,6 @@ export default async function RootLayout({
   return (
     <html
       lang={locale}
-      className={`${cormorant.variable} ${inter.variable}`}
       suppressHydrationWarning
     >
       <head>
