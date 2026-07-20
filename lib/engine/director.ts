@@ -196,6 +196,29 @@ export async function directScene(
 ): Promise<SceneResult> {
   const tTotal = Date.now();
 
+  // ── Fusion Core 桥接（完美融合）──
+  // 若配置了 FUSION_CORE_URL，Scene 图（含角色/剧情状态）直接从 Fusion Core
+  // 拉取（novel-to-game 结构化 → Fusion Core 实时编译/LLM 生长），跳过本机
+  // Writer pipeline。画像仍走 InfiPlot 的 Painter（sceneImageUrl 留空）。
+  // 未配置时完全走原逻辑，零侵入降级。
+  const fusionUrl = process.env.FUSION_CORE_URL;
+  if (fusionUrl) {
+    try {
+      const res = await fetch(`${fusionUrl.replace(/\/$/, "")}/api/scene-result`, {
+        headers: { "Content-Type": "application/json" },
+      });
+      if (res.ok) {
+        const result = (await res.json()) as SceneResult;
+        console.log(`[directScene] Fusion Core 桥接成功：scene=${result.scene.id}, chars=${result.characters.length}`);
+        return result;
+      }
+      console.warn(`[directScene] Fusion Core 返回 ${res.status}，降级到原 pipeline`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[directScene] Fusion Core 拉取失败，降级到原 pipeline: ${msg}`);
+    }
+  }
+
   // ══════════════════════════════════════════════════════════════════════
   //  Paradigm D — single Writer stream + StreamRouter dispatch
   //
