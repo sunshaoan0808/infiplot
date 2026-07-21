@@ -7,11 +7,12 @@
 // sync (Supabase) layers on next phase behind AUTH_ENABLED.
 
 import type { Session } from "@infiplot/types";
-import type { StoryMeta } from "@/lib/persistence/types";
+import type { StoryMeta, SessionValidationError } from "@/lib/persistence/types";
 import {
   saveStorySession,
   listStories,
   loadStorySession as loadSession,
+  loadAndValidateSession,
   softDeleteStory,
 } from "@/lib/persistence/localStore";
 import { pushOnSave, pushDeletion } from "@/lib/persistence/cloudSync";
@@ -19,6 +20,10 @@ import { pushOnSave, pushDeletion } from "@/lib/persistence/cloudSync";
 export type SaveResult =
   | { ok: true; storyId: string }
   | { ok: false; error: string };
+
+export type LoadResult =
+  | { ok: true; session: Session }
+  | { ok: false; error: string; validationError: SessionValidationError };
 
 /** Persist the current session locally (upsert by id). Safe to fire-and-forget:
  *  never throws, never blocks gameplay/navigation. */
@@ -39,6 +44,13 @@ export async function loadStoryList(): Promise<StoryMeta[]> {
 /** Load the full (slim) Session for a saved story, or null if absent/deleted. */
 export async function loadStorySession(id: string): Promise<Session | null> {
   return loadSession(id);
+}
+
+/** Load and validate a session by id. Returns a structured result with the
+ *  loaded session or a human-readable error for corrupt/missing saves. Use this
+ *  for resume-by-sessionId to surface recovery info instead of a white screen. */
+export async function loadAndValidateStorySession(id: string): Promise<LoadResult> {
+  return loadAndValidateSession(id);
 }
 
 /** Delete a saved story (soft-delete). Returns false if not found. */

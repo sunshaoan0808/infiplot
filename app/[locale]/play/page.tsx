@@ -21,7 +21,7 @@ import { SettingsModal, readStoredPlayerName, readStoredVisionClick } from "@/co
 import { annotateClick } from "@/lib/annotateClient";
 import { loadClientTtsConfig } from "@/lib/clientTtsConfig";
 import { collectBeatAudioForExport } from "@/lib/exportAudio";
-import { saveStory, loadStorySession } from "@/lib/clientStoryPersistence";
+import { saveStory, loadAndValidateStorySession } from "@/lib/clientStoryPersistence";
 import { PRESETS } from "@/lib/presets";
 import {
   STORY_SHARE_STORAGE_KEY,
@@ -1688,19 +1688,20 @@ function PlayInner() {
       return;
     }
 
-    // 三条进入路径：
+    // 五条进入路径：
     //   ?card=<m0..f31>      → 首页精选卡，直接从 /home/firstact/{name}.json
     //                          静态文件加载（已在构建期 prebake，免一切引擎调用）
     //   ?preset=<id>         → 内置 PRESETS（仍走 /api/start 现场生成）
     //   ?custom=1            → 用户自定义 prompt，sessionStorage 取 ws/sg
     //                          后走 /api/start 现场生成
     //   ?share=1             → 首页上传的剧情分享 JSON，从第一幕开始本地回放
-    //   ?storyId=<uuid>      → 加载已保存的剧情（从 localStorage）
+    //   ?storyId=<uuid>      → 加载已保存的剧情（从 IndexedDB）
+    //   ?sessionId=<uuid>    → 同 storyId，用于持久化续档（关浏览器/重开同进度）
     const cardName = params.get("card");
     const presetId = params.get("preset");
     const isCustom = params.get("custom") === "1";
     const isShare = params.get("share") === "1";
-    const storyId = params.get("storyId");
+    const storyId = params.get("storyId") ?? params.get("sessionId");
 
     if (isShare) {
       (async () => {
@@ -1820,15 +1821,21 @@ function PlayInner() {
       return;
     }
 
-    // ── Load saved story path ──
+    // ── Load saved story path (by storyId or sessionId) ──
     if (storyId) {
       (async () => {
         // Browser-local store (IndexedDB) is async; load inside the IIFE.
-        const loadedSession = await loadStorySession(storyId);
-        if (!loadedSession) {
-          setError(t("play.savedStoryNotFound"));
+        // Use loadAndValidateStorySession for structured error handling on
+        // corrupt saves — surfaces recovery info instead of a white screen.
+        const result = await loadAndValidateStorySession(storyId);
+        if (!result.ok) {
+          // Distinguish "not found" from "corrupt" so the user knows whether
+          // to try again or start a new story.
+          setError(result.error);
           return;
         }
+        const loadedSession = result.session;
+
         // Resume at the player's last position. Walk from the newest scene back
         // to the first and resume at the latest one that actually has a rendered
         // image: the final scene → correct position; if the very last scene
@@ -1965,6 +1972,21 @@ function PlayInner() {
         };
         visitedBeatsRef.current = [data.scene.entryBeatId];
         setSession(initial);
+        // Make the play URL resumeable across browser restart: put sessionId in
+        // the query so a hard refresh / re-open lands on the same save.
+        try {
+          if (typeof window !== "undefined" && initial.id) {
+            const url = new URL(window.location.href);
+            if (!url.searchParams.get("sessionId") && !url.searchParams.get("storyId")) {
+              url.searchParams.set("sessionId", initial.id);
+              // Drop one-shot start params so reload doesn't re-generate.
+              for (const k of ["preset", "custom", "card", "share"]) url.searchParams.delete(k);
+              window.history.replaceState(null, "", url.toString());
+            }
+          }
+        } catch {
+          // non-fatal: resume still works via 我的剧情 list
+        }
         setCurrentScene(data.scene);
         setCurrentBeatId(data.scene.entryBeatId);
         const ready = waitForImageReady();
