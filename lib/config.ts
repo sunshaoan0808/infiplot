@@ -71,19 +71,21 @@ export function loadEngineConfig(): EngineConfig {
   return {
     text: {
       baseUrl: readVar("TEXT_BASE_URL"),
-      apiKey: readVar("TEXT_API_KEY"),
+      apiKey: readVa...Y"),
       model: readVar("TEXT_MODEL"),
       provider: readProvider("TEXT_PROVIDER"),
     },
     image: {
       baseUrl: readVar("IMAGE_BASE_URL"),
-      apiKey: readVar("IMAGE_API_KEY"),
+      apiKey: readVa...Y"),
       model: readVar("IMAGE_MODEL"),
       provider: readProvider("IMAGE_PROVIDER"),
     },
+    /** W8：备用出图 provider — 主挂时自动切换 */
+    imageBackup: loadImageBackupConfig(),
     vision: {
       baseUrl: readVar("VISION_BASE_URL"),
-      apiKey: readVar("VISION_API_KEY"),
+      apiKey: readVa...Y"),
       model: readVar("VISION_MODEL"),
       provider: readProvider("VISION_PROVIDER"),
     },
@@ -92,6 +94,15 @@ export function loadEngineConfig(): EngineConfig {
     imageTimeoutMs: readOptionalPositiveInt("IMAGE_TIMEOUT_MS"),
     imageHedgeMs: readOptionalPositiveInt("IMAGE_HEDGE_MS"),
   };
+}
+
+function loadImageBackupConfig(): ProviderConfig | undefined {
+  const baseUrl = readOptionalVar("IMAGE_BACKUP_BASE_URL");
+  const apiKey = readOptionalVar("IMAGE_BACKUP_API_KEY");
+  const model = readOptionalVar("IMAGE_BACKUP_MODEL");
+  const provider = readProvider("IMAGE_BACKUP_PROVIDER");
+  if (!baseUrl || !apiKey || !model) return undefined;
+  return { baseUrl, apiKey, model, provider };
 }
 
 // ── BYOK (Bring Your Own Key) ────────────────────────────────────────────
