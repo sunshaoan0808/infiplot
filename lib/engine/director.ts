@@ -212,8 +212,10 @@ export async function directScene(
             (lastExit as { choiceId?: string }).choiceId ??
             ""
           : "";
-      const url = `${fusionUrl.replace(/\/$/, "")}/api/scene-result${
-        choiceParam ? `?choice=${encodeURIComponent(choiceParam)}` : ""
+      // 把 Infiplot 会话 id 透传给 Fusion Core，实现多会话 WorldState 隔离
+      const sid = session.id || "default";
+      const url = `${fusionUrl.replace(/\/$/, "")}/api/scene-result?sessionId=${encodeURIComponent(sid)}${
+        choiceParam ? `&choice=${encodeURIComponent(choiceParam)}` : ""
       }`;
       const res = await fetch(url, { headers: { "Content-Type": "application/json" } });
       if (res.ok) {
