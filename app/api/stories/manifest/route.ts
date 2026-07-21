@@ -6,15 +6,18 @@ export const runtime = "nodejs";
 
 // GET /api/stories/manifest — the reconcile diff basis: every cloud row for the
 // signed-in user (INCLUDING tombstones), projected to {id, rev, updatedAt,
-// deletedAt} without the bulky session_jsonb. Pure passthrough to cloudStore;
-// requireUser 401s an unauthenticated commercial-build caller, and on the
-// open-source build (AUTH_ENABLED=false) cloudStoryManifest short-circuits to []
-// without ever constructing a Supabase client.
-export async function GET() {
+// deletedAt} without the bulky session_jsonb. Supports ?workId filter for W10.
+export async function GET(req: Request) {
   const auth = await requireUser();
   if (auth instanceof NextResponse) return auth;
 
-  const items = await cloudStoryManifest();
+  let items = await cloudStoryManifest();
+  const url = new URL(req.url);
+  const workId = url.searchParams.get("workId");
+  if (workId) {
+    items = items.filter((i) => i.workId === workId);
+  }
+
   return NextResponse.json(
     { items },
     { headers: { "Cache-Control": "private, no-store" } },
