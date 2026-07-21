@@ -1,13 +1,13 @@
 /**
- * W5 freeform 配额 + 软墙（进程内账本桩）。
+ * W5 freeform 配额 + 软墙 + W7 付费墙/充值/账单（进程内账本桩）。
  *
- * 合同（必须活到真账单实现）：
+ * 合同：
  * 1. 成功推进才扣点；失败/拦截不扣
  * 2. 软墙：配额不足只挡「下一次推进」，绝不抹掉当前场
- * 3. 当前场 + 历史永远可读（本模块只负责推进闸门）
+ * 3. 充值/升档后额度恢复可推进
+ * 4. 每笔 charge / topup / upgrade 写账单流水（requestId 幂等）
  *
- * Free 锚（Debby R3）：30 对话 / 5 图 / 0 声
- * freeform / insert-beat / scene 推进都算 1 对话点。
+ * Free 锚：30 对话 / 5 图 / 0 声
  */
 
 export type ResourceKind = "dialogue" | "image" | "tts";
@@ -27,6 +27,18 @@ export const PLAN_LIMITS: Record<PlanTier, QuotaLimits> = {
   pro: { dialogue: 1000, image: 250, tts: 150 },
 };
 
+/** 加量包（W7 MVP 固定 SKU） */
+export const TOPUP_PACKS: Record<
+  string,
+  { resource: ResourceKind; amount: number; label: string }
+> = {
+  dialogue_50: { resource: "dialogue", amount: 50, label: "对话+50" },
+  dialogue_200: { resource: "dialogue", amount: 200, label: "对话+200" },
+  image_20: { resource: "image", amount: 20, label: "图+20" },
+  image_80: { resource: "image", amount: 80, label: "图+80" },
+  tts_30: { resource: "tts", amount: 30, label: "声+30" },
+};
+
 export type SoftWallError = {
   code: "quota_exhausted";
   softWall: true;
@@ -35,6 +47,8 @@ export type SoftWallError = {
   resource: ResourceKind;
   remaining: QuotaLimits;
   limit: QuotaLimits;
+  /** W7：引导充值 */
+  paywall: true;
   message: string;
 };
 
@@ -46,6 +60,19 @@ export type ContentBlockError = {
   message: string;
 };
 
+export type LedgerEntry = {
+  id: string;
+  userId: string;
+  at: number;
+  kind: "charge" | "topup" | "upgrade" | "refund";
+  resource?: ResourceKind;
+  amount: number;
+  requestId: string;
+  note?: string;
+  balanceAfter?: QuotaLimits;
+  tierAfter?: PlanTier;
+};
+
 type Bucket = {
   used: QuotaLimits;
   limit: QuotaLimits;
@@ -53,6 +80,9 @@ type Bucket = {
 };
 
 const buckets = new Map<string, Bucket>();
+const ledgers = new Map<string, LedgerEntry[]>();
+/** requestId → ledger id，幂等 */
+const idempotency = new Map<string, string>();
 
 function defaultTier(): PlanTier {
   const raw = (process.env.INFI_PLAN_TIER || "free").toLowerCase();
@@ -74,6 +104,19 @@ function ensure(userId: string): Bucket {
   return b;
 }
 
+function ledgerOf(userId: string): LedgerEntry[] {
+  let L = ledgers.get(userId);
+  if (!L) {
+    L = [];
+    ledgers.set(userId, L);
+  }
+  return L;
+}
+
+function newId(prefix: string): string {
+  return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
 export function remainingOf(b: Bucket): QuotaLimits {
   return {
     dialogue: Math.max(0, b.limit.dialogue - b.used.dialogue),
@@ -87,14 +130,25 @@ export function getQuotaSnapshot(userId: string): {
   used: QuotaLimits;
   limit: QuotaLimits;
   remaining: QuotaLimits;
+  paywall: boolean;
 } {
   const b = ensure(userId);
+  const remaining = remainingOf(b);
   return {
     tier: b.tier,
     used: { ...b.used },
     limit: { ...b.limit },
-    remaining: remainingOf(b),
+    remaining,
+    /** 对话点用尽 = 付费墙亮起（当前场仍可读） */
+    paywall: remaining.dialogue <= 0,
   };
+}
+
+export function getLedger(
+  userId: string,
+  limit = 50,
+): LedgerEntry[] {
+  return ledgerOf(userId).slice(-limit).reverse();
 }
 
 /**
@@ -115,6 +169,7 @@ export function checkAdvance(
       resource,
       remaining,
       limit: { ...b.limit },
+      paywall: true,
       message: `配额不足（${resource}）：当前场已保留，充值后可继续推进`,
     };
   }
@@ -125,18 +180,138 @@ export function checkAdvance(
 export function chargeSuccess(
   userId: string,
   resource: ResourceKind = "dialogue",
+  requestId?: string,
 ): QuotaLimits {
+  const rid = requestId || newId("chg");
+  const idemKey = `charge:${userId}:${rid}`;
+  if (idempotency.has(idemKey)) {
+    return remainingOf(ensure(userId));
+  }
+
   const b = ensure(userId);
   b.used[resource] += 1;
   const rem = remainingOf(b);
+  const entry: LedgerEntry = {
+    id: newId("led"),
+    userId,
+    at: Date.now(),
+    kind: "charge",
+    resource,
+    amount: 1,
+    requestId: rid,
+    note: `consume ${resource}`,
+    balanceAfter: rem,
+    tierAfter: b.tier,
+  };
+  ledgerOf(userId).push(entry);
+  idempotency.set(idemKey, entry.id);
   console.log(
     `[quota] +1 ${resource} user=${userId} used=${b.used[resource]}/${b.limit[resource]} rem=${rem[resource]}`,
   );
   return rem;
 }
 
-// ── 违规输入硬拦截（W5 最小集；W6 再上完整分级） ──────────────────
-// 未成年性内容硬红线关键词（中英混）。命中 → 拒绝推进，当前场保留。
+/**
+ * W7：加量包充值（模拟支付成功回调）。
+ * requestId 幂等 — 同一 requestId 不重复加额度。
+ */
+export function topup(
+  userId: string,
+  packId: string,
+  requestId: string,
+):
+  | { ok: true; snapshot: ReturnType<typeof getQuotaSnapshot>; entry: LedgerEntry }
+  | { ok: false; error: string } {
+  const pack = TOPUP_PACKS[packId];
+  if (!pack) return { ok: false, error: `unknown pack: ${packId}` };
+  if (!requestId?.trim()) return { ok: false, error: "requestId required" };
+
+  const idemKey = `topup:${userId}:${requestId}`;
+  if (idempotency.has(idemKey)) {
+    const existingId = idempotency.get(idemKey)!;
+    const existing = ledgerOf(userId).find((e) => e.id === existingId);
+    return {
+      ok: true,
+      snapshot: getQuotaSnapshot(userId),
+      entry: existing!,
+    };
+  }
+
+  const b = ensure(userId);
+  b.limit[pack.resource] += pack.amount;
+  const rem = remainingOf(b);
+  const entry: LedgerEntry = {
+    id: newId("led"),
+    userId,
+    at: Date.now(),
+    kind: "topup",
+    resource: pack.resource,
+    amount: pack.amount,
+    requestId,
+    note: pack.label,
+    balanceAfter: rem,
+    tierAfter: b.tier,
+  };
+  ledgerOf(userId).push(entry);
+  idempotency.set(idemKey, entry.id);
+  console.log(
+    `[quota] topup ${pack.label} user=${userId} limit.${pack.resource}=${b.limit[pack.resource]}`,
+  );
+  return { ok: true, snapshot: getQuotaSnapshot(userId), entry };
+}
+
+/**
+ * W7：套餐升档。升到更高档时 limit 抬到套餐额度与当前 limit 的较大值
+ * （已买加量包不丢）。
+ */
+export function upgradeTier(
+  userId: string,
+  tier: PlanTier,
+  requestId: string,
+):
+  | { ok: true; snapshot: ReturnType<typeof getQuotaSnapshot>; entry: LedgerEntry }
+  | { ok: false; error: string } {
+  if (!PLAN_LIMITS[tier]) return { ok: false, error: `unknown tier: ${tier}` };
+  if (!requestId?.trim()) return { ok: false, error: "requestId required" };
+
+  const idemKey = `upgrade:${userId}:${requestId}`;
+  if (idempotency.has(idemKey)) {
+    const existingId = idempotency.get(idemKey)!;
+    const existing = ledgerOf(userId).find((e) => e.id === existingId);
+    return {
+      ok: true,
+      snapshot: getQuotaSnapshot(userId),
+      entry: existing!,
+    };
+  }
+
+  const b = ensure(userId);
+  const plan = PLAN_LIMITS[tier];
+  b.tier = tier;
+  b.limit = {
+    dialogue: Math.max(b.limit.dialogue, plan.dialogue),
+    image: Math.max(b.limit.image, plan.image),
+    tts: Math.max(b.limit.tts, plan.tts),
+  };
+  const rem = remainingOf(b);
+  const entry: LedgerEntry = {
+    id: newId("led"),
+    userId,
+    at: Date.now(),
+    kind: "upgrade",
+    amount: 0,
+    requestId,
+    note: `upgrade to ${tier}`,
+    balanceAfter: rem,
+    tierAfter: tier,
+  };
+  ledgerOf(userId).push(entry);
+  idempotency.set(idemKey, entry.id);
+  console.log(`[quota] upgrade user=${userId} → ${tier}`);
+  return { ok: true, snapshot: getQuotaSnapshot(userId), entry };
+}
+
+// ── 违规输入硬拦截（W5 最小集） ──────────────────────────────────────
 const HARD_BLOCK_PATTERNS: RegExp[] = [
   /未成年/,
   /未\s*成\s*年/,
@@ -175,8 +350,17 @@ export function checkFreeformContent(
 
 /** 测试用：重置某用户或全清。 */
 export function __resetQuota(userId?: string): void {
-  if (userId) buckets.delete(userId);
-  else buckets.clear();
+  if (userId) {
+    buckets.delete(userId);
+    ledgers.delete(userId);
+    for (const k of [...idempotency.keys()]) {
+      if (k.includes(`:${userId}:`)) idempotency.delete(k);
+    }
+  } else {
+    buckets.clear();
+    ledgers.clear();
+    idempotency.clear();
+  }
 }
 
 /** 测试用：把某资源用到刚好剩 0（或自定义 used）。 */
