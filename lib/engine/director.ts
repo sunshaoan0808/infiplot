@@ -234,7 +234,8 @@ export async function directScene(
         );
         // 用 Fusion Core 的 voiceDescription 走 InfiPlot 的 voice pipeline 真出声
         // （novel-to-game 提供的角色声音描述 → InfiPlot provision 成真实 voice 对象）
-        const provisionedChars = await Promise.all(
+        // 与 Painter 并行：桥接默认 sceneImageUrl 为空，补画才能演出背景。
+        const provisionedCharsPromise = Promise.all(
           result.characters.map(async (c) => {
             if (!c.voiceDescription) return c;
             const voice = await provisionCharacterVoice(
@@ -246,7 +247,80 @@ export async function directScene(
             return { ...c, voice: voice ?? c.voice };
           }),
         );
-        return { ...result, characters: provisionedChars };
+
+        const orientation = coerceOrientation(session.orientation);
+        const entryBeat =
+          result.scene.beats.find((b) => b.id === result.scene.entryBeatId) ??
+          result.scene.beats[0];
+        const onStageNames = new Set(
+          (entryBeat?.activeCharacters ?? []).map((c) =>
+            typeof c === "string" ? c : c.name,
+          ),
+        );
+        if (entryBeat?.speaker) onStageNames.add(entryBeat.speaker);
+        // Fusion 常缺 activeCharacters：从 scenePrompt 点名角色，避免一次塞 4 张脸导致糊脸
+        if (onStageNames.size === 0) {
+          const prompt = result.scene.scenePrompt || "";
+          for (const c of result.characters) {
+            if (c.name && prompt.includes(c.name)) onStageNames.add(c.name);
+          }
+        }
+        let paintChars = result.characters.filter((c) =>
+          onStageNames.has(c.name),
+        );
+        if (paintChars.length === 0) {
+          // 最后兜底：只取 1 个主视觉，绝不堆全员
+          paintChars = result.characters
+            .filter((c) => c.visualDescription)
+            .slice(0, 1);
+        }
+        const integratedPrompt =
+          (result.scene.scenePrompt || "").trim() || "cinematic story scene";
+        let sceneImageUrl = result.sceneImageUrl || "";
+        let paintedUuid: string | undefined;
+        try {
+          const painted = await runPainter(
+            config,
+            {
+              integratedPrompt,
+              styleGuide: session.styleGuide || "cinematic realist",
+              onStageCharacters: paintChars,
+              priorSceneImage: session.history
+                .at(-1)
+                ?.scene?.imageUrl,
+              styleReferenceImage: session.styleReferenceImage,
+              orientation,
+            },
+            entryBeat,
+          );
+          sceneImageUrl = painted.imageUrl;
+          if (painted.kind === "real") paintedUuid = painted.imageUuid;
+          emit?.({
+            type: "background",
+            imageUrl: painted.imageUrl,
+            sceneKey: result.scene.sceneKey,
+          });
+        } catch (paintErr) {
+          const msg =
+            paintErr instanceof Error ? paintErr.message : String(paintErr);
+          console.warn(
+            `[directScene] Fusion bridge Painter failed (text continues): ${msg}`,
+          );
+        }
+
+        const provisionedChars = await provisionedCharsPromise;
+        const scene = {
+          ...result.scene,
+          imageUrl: sceneImageUrl || result.scene.imageUrl,
+          imageUuid: paintedUuid ?? result.scene.imageUuid,
+          orientation: result.scene.orientation ?? orientation,
+        };
+        return {
+          ...result,
+          scene,
+          sceneImageUrl,
+          characters: provisionedChars,
+        };
       }
       console.warn(`[directScene] Fusion Core 返回 ${res.status}，降级到原 pipeline`);
     } catch (err) {
