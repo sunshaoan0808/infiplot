@@ -5,14 +5,27 @@ import {
   isValidStepfunVoiceId,
   stepfunProvision,
   type StepfunProvisionOptions,
-  stepfunSynthesize,
 } from "./stepfun";
-import { xiaomiProvision, xiaomiSynthesize } from "./xiaomi";
+import { xiaomiProvision } from "./xiaomi";
+import { routeSynthesize } from "./router";
 
 // Re-export so /api/tts-provider, orchestrator, CharacterDesigner prompt, and
 // the client all share ONE provider-detection rule + ONE catalog rendering +
 // ONE validity check with the synth path.
 export { isStepfun, isValidStepfunVoiceId, formatStepfunCatalogForPrompt };
+
+// Re-export the ProviderRouter surface so tests / observability reach the
+// breaker + metering stub without importing a deep path.
+export {
+  routeSynthesize,
+  synthWithPolicy,
+  getMeterSnapshot,
+  getBreakerState,
+  BreakerOpenError,
+  __resetMeter,
+  __resetBreakers,
+} from "./router";
+export type { SynthResult } from "./router";
 
 /** Map a configured TtsConfig to its provider tag. Single source of truth for
  *  the inference rule (host contains stepfun.com → stepfun, else xiaomi) so
@@ -47,6 +60,11 @@ export async function provisionVoice(
 // each voice must be synthesized via the protocol that minted it. The cfg
 // still needs to point at the matching provider's endpoint; mismatch surfaces
 // as a transparent network error, which `synthesizeBeat` already swallows.
+//
+// Delegates to the ProviderRouter (routeSynthesize), which layers the
+// per-provider circuit breaker + success-only metering stub over the same
+// provider dispatch. On a healthy provider the breaker stays closed, so this
+// is behavior-equivalent to the historical inline dispatch.
 export async function synthesize(
   cfg: TtsConfig,
   voice: CharacterVoice,
@@ -54,8 +72,5 @@ export async function synthesize(
   delivery?: string,
   signal?: AbortSignal,
 ): Promise<{ audioBase64: string; mimeType: string }> {
-  if (voice.provider === "stepfun") {
-    return stepfunSynthesize(cfg, voice, text, delivery, signal);
-  }
-  return xiaomiSynthesize(cfg, voice, text, delivery, signal);
+  return routeSynthesize(cfg, voice, text, delivery, signal);
 }
