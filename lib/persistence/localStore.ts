@@ -44,6 +44,7 @@ function toMeta(rec: StoryRecord): StoryMeta {
     sceneCount: rec.sceneCount,
     createdAt: coerceEpoch(rec.createdAt, 0),
     updatedAt: coerceEpoch(rec.updatedAt, 0),
+    workId: rec.session?.workId || rec.workId || "default",
   };
 }
 
@@ -149,6 +150,7 @@ export async function saveStorySession(
     // keep its state (new → local-only). Consumed by next-phase cloud sync.
     syncState: existing?.syncState === "synced" ? "pending" : existing?.syncState ?? "local-only",
     session: slimSession(session),
+    workId: session.workId || "default",
   };
 
   const ok = await idbPut(STORIES_STORE, record);
@@ -161,12 +163,14 @@ export async function saveStorySession(
  *  NOTE: idbGetAll deserializes each record's full session blob even though only
  *  the denormalized meta fields are projected — meta and blob share one object
  *  store. Acceptable at LOCAL_STORY_CAP=50; if listing ever dominates, split the
- *  meta into its own store (or a cursor projection) to avoid reading blobs here. */
-export async function listStories(): Promise<StoryMeta[]> {
+ *  meta into its own store (or a cursor projection) to avoid reading blobs here.
+ *  W10: pass workId to scope list to one work (WorldState isolation). */
+export async function listStories(workId?: string): Promise<StoryMeta[]> {
   const all = await idbGetAll<StoryRecord>(STORIES_STORE);
   return all
     .filter((r) => !r.deletedAt)
     .map(toMeta)
+    .filter((m) => (workId ? (m.workId || "default") === workId : true))
     .sort((a, b) => b.updatedAt - a.updatedAt);
 }
 

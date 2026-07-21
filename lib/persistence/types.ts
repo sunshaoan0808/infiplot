@@ -141,6 +141,8 @@ export type StoryMeta = {
   createdAt: number;
   /** epoch ms */
   updatedAt: number;
+  /** W10: work/preset scope. Absent → "default". */
+  workId?: string;
 };
 
 /** The shared core payload for one saved story, identical between the local
@@ -157,6 +159,8 @@ export type SlimStoryBlob = {
   /** Slim Session (voice + styleReferenceImage stripped). Type stays `Session`;
    *  slimming is a runtime guarantee enforced by the store, not the type. */
   session: Session;
+  /** W10: work/preset scope. Absent → "default". */
+  workId?: string;
 };
 
 /** One row in the browser-local IndexedDB store (object store keyPath = "id").
@@ -190,6 +194,8 @@ export type StoryRecord = {
   /** Slim Session (voice + styleReferenceImage stripped). IndexedDB
    *  structured-clones objects, so this is stored as-is (no JSON.stringify). */
   session: Session;
+  /** W10: work/preset scope denormalized for list filter. */
+  workId?: string;
 };
 
 // ── Cloud-sync wire types (story-cloud-sync) ────────────────────────────────
@@ -206,6 +212,8 @@ export type StorySyncMeta = {
   updatedAt: number;
   /** Soft-delete tombstone (epoch ms) or null. */
   deletedAt: number | null;
+  /** W10: work/preset scope for multi-work filter. */
+  workId?: string;
 };
 
 /** Full-payload carrier for pull/push between the local store and the cloud.

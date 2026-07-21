@@ -67,6 +67,8 @@ export async function startSession(
     orientation: coerceOrientation(req.orientation),
     playerName: req.playerName?.trim() || undefined,
     language: (req.language?.trim() && isValidLocale(req.language.trim())) ? req.language.trim() : undefined,
+    // W10：作品 id 锁在 session 上，切换作品时 WorldState 不串
+    workId: req.workId?.trim() || "default",
   };
 
   // Stage 0 — optional auto style selection. The story bible is no longer

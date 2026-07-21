@@ -8,6 +8,7 @@ import {
   scanOutput,
   getAgeGate,
 } from "@/lib/engine/compliance";
+import { getWork } from "@/lib/engine/works";
 
 function formatSSE(event: SceneStreamEvent | { type: string; [k: string]: unknown }): string {
   return `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`;
@@ -32,6 +33,16 @@ export async function POST(req: Request) {
     body = (await req.json()) as StartRequest;
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  }
+
+  // W10：workId 填充 worldSetting/styleGuide
+  if (body.workId) {
+    const work = getWork(body.workId);
+    if (!work) {
+      return NextResponse.json({ error: `unknown work: ${body.workId}` }, { status: 400 });
+    }
+    body.worldSetting = body.worldSetting?.trim() || work.worldSetting;
+    body.styleGuide = body.styleGuide?.trim() || work.styleGuide;
   }
 
   if (!body.worldSetting?.trim() || !body.styleGuide?.trim()) {
@@ -80,7 +91,11 @@ export async function POST(req: Request) {
           { status: 403 },
         );
       }
-      return NextResponse.json({ ...result, ageGate: getAgeGate(userId) });
+      return NextResponse.json({
+        ...result,
+        workId: body.workId || "default",
+        ageGate: getAgeGate(userId),
+      });
     }
 
     const encoder = new TextEncoder();
@@ -105,7 +120,7 @@ export async function POST(req: Request) {
             encoder.encode(
               formatSSE({
                 type: "done",
-                response: { ...responseBody, ageGate: getAgeGate(userId) },
+                response: { ...responseBody, workId: body.workId || "default", ageGate: getAgeGate(userId) },
               }),
             ),
           );

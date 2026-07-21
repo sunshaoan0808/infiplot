@@ -420,6 +420,11 @@ export type Session = {
    * the prompt; "triggered" entries inject when keywords match recent text.
    */
   worldBooks?: WorldBook[];
+  /**
+   * W10: which work/preset this session belongs to.
+   * Absent → "default" (freeform / legacy).
+   */
+  workId?: string;
 };
 
 // ──────────────────────────────────────────────────────────────────────
@@ -506,17 +511,6 @@ export type EngineConfig = {
   imageTimeoutMs?: number;
   imageHedgeMs?: number;
 };
-   * Runware kills tasks at ~55s with a 504).
-   */
-  imageTimeoutMs?: number;
-  /**
-   * Painter scene-paint hedge threshold (ms). When the Tier-A (referenced)
-   * paint hasn't completed after this long, a second identical request races
-   * the first and the earlier result wins. Unset/0 → hedging disabled.
-   * Derived from healthy-day Runware p95 (~14s); recommended 15000.
-   */
-  imageHedgeMs?: number;
-};
 
 // ──────────────────────────────────────────────────────────────────────
 //  API contracts
@@ -535,34 +529,19 @@ export type ByoLlmKeys = {
 };
 
 export type StartRequest = {
+  /**
+   * W10: Work/preset id to start. When set, `worldSetting` and `styleGuide`
+   * may be omitted (they'll be filled from the preset). When absent → freeform.
+   */
+  workId?: string;
   worldSetting: string;
   styleGuide: string;
-  /** Optional user-uploaded style reference image — see Session.styleReferenceImage. */
   styleReferenceImage?: string;
-  /**
-   * When true the client supplied its own Xiaomi TTS key and will provision +
-   * synth voices in the browser (key never touches our server). The route then
-   * drops `config.tts` so the engine skips all server-side TTS work.
-   */
   clientTts?: boolean;
-  /**
-   * Device orientation chosen at session start. "portrait" makes the engine
-   * paint 9:16 vertical scene images (mobile, held upright); "landscape"
-   * (default) keeps 16:9 widescreen. Locked for the whole session.
-   */
   orientation?: Orientation;
-  /** Optional player display name — see Session.playerName. */
-  playerName?: string;
-  /** Active UI locale — see Session.language. Drives the engine's language
-   *  directive so AI output is generated in the player's chosen language. */
-  language?: string;
-  /**
-   * BYOK: user-provided LLM keys. When present, server uses these to construct
-   * EngineConfig instead of reading from env. Per-role: text/image/vision can
-   * be independently configured. Keys never persist or log — they only pass
-   * through request→config construction.
-   */
   byo?: ByoLlmKeys;
+  playerName?: string;
+  language?: string;
 };
 
 // /api/parse-style-image — vision LLM extracts a textual painting-style
