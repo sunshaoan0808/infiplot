@@ -53,7 +53,7 @@ export async function startSession(
   config: EngineConfig,
   req: StartRequest,
   emit?: (event: SceneStreamEvent) => void,
-): Promise<StartResponse> {
+): Promise<StartResponse & { imageWait?: Promise<void> }> {
   const tTotal = Date.now();
 
   const session: Session = {
@@ -91,7 +91,7 @@ export async function startSession(
     console.log(`[start] auto-selected style: ${session.styleGuide.slice(0, 60)}…`);
   }
 
-  const { scene, sceneImageUrl, characters, storyState, imageStatus } =
+  const { scene, sceneImageUrl, characters, storyState, imageStatus, imageWait } =
     await directScene(config, session, emit);
 
   tlog("[start] TOTAL", tTotal);
@@ -103,6 +103,7 @@ export async function startSession(
     characters,
     storyState,
     imageStatus,
+    imageWait,
   };
 }
 
@@ -114,10 +115,10 @@ export async function requestScene(
   config: EngineConfig,
   req: SceneRequest,
   emit?: (event: SceneStreamEvent) => void,
-): Promise<SceneResponse> {
+): Promise<SceneResponse & { imageWait?: Promise<void> }> {
   const tTotal = Date.now();
 
-  const { scene, sceneImageUrl, characters, storyState, imageStatus } =
+  const { scene, sceneImageUrl, characters, storyState, imageStatus, imageWait } =
     await directScene(config, req.session, emit);
 
   tlog("[scene] TOTAL", tTotal);
@@ -128,6 +129,7 @@ export async function requestScene(
     characters,
     storyState,
     imageStatus,
+    imageWait,
   };
 }
 

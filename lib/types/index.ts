@@ -780,6 +780,20 @@ export type SceneStreamEvent<TDone = SceneResponse> =
   | { type: "plan"; plan: WriterScenePlan }
   | { type: "beat"; beat: Beat }
   | { type: "background"; imageUrl: string; sceneKey?: string }
+  /** W2：文先回后的出图终态（成功）。与 background 并存，客户端优先听这个。 */
+  | {
+      type: "image.ready";
+      imageUrl: string;
+      sceneKey?: string;
+      sceneId?: string;
+    }
+  /** W2：文先回后的出图终态（失败）。 */
+  | {
+      type: "image.failed";
+      message?: string;
+      sceneKey?: string;
+      sceneId?: string;
+    }
   | { type: "voice"; name: string; voice: CharacterVoice }
   | { type: "choices"; choices: BeatChoice[] }
   | { type: "done"; response: TDone }
