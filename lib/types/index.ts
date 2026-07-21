@@ -90,8 +90,16 @@ export type Scene = {
    *
    * For MOCK_IMAGE=true this is a `data:image/svg+xml;...` data URI, not a
    * Runware URL — the client renders both forms transparently.
+   *
+   * Fusion 桥接文先回路径可能先空着，由 `imageStatus=pending` 标记，
+   * Painter 后台完成后通过 stream `background` 事件回填。
    */
   imageUrl?: string;
+  /**
+   * Fusion 桥接文先回：Painter 未完成 pending；成功 ready；失败 failed。
+   * 非桥接 / 已有图路径可省略。
+   */
+  imageStatus?: "pending" | "ready" | "failed" | "empty";
   /**
    * Orientation this scene's image was painted in. Mirrors the session's
    * locked orientation; recorded per-scene so the client can pick the right
@@ -578,6 +586,8 @@ export type StartResponse = {
   /** Story bible created by the Architect + updated by the opening scene's
    *  Writer. The client persists this into the session for later /api/scene calls. */
   storyState: StoryState;
+  /** Fusion 桥接文先回时：pending / ready / failed */
+  imageStatus?: "pending" | "ready" | "failed" | "empty";
 };
 
 // /api/scene — generates the next Scene, given session whose latest
@@ -600,6 +610,8 @@ export type SceneResponse = {
    *  must persist this back into the session so the throughline survives the
    *  next scene cut. */
   storyState: StoryState;
+  /** Fusion 桥接文先回时：pending / ready / failed */
+  imageStatus?: "pending" | "ready" | "failed" | "empty";
 };
 
 // /api/beat-audio — lazily synthesize one beat's voice. Client fires this
