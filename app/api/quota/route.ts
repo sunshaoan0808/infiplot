@@ -5,6 +5,8 @@ import {
   getLedger,
   topup,
   upgradeTier,
+  listPlans,
+  listPacks,
   TOPUP_PACKS,
   PLAN_LIMITS,
   type PlanTier,
@@ -12,31 +14,32 @@ import {
 
 export const runtime = "nodejs";
 
-/** GET — 配额快照 + 可选账单 */
+/** GET — 配额快照 + 套餐/加量包目录 + 可选账单 */
 export async function GET(req: Request) {
   const auth = await requireUser();
   if (auth instanceof NextResponse) return auth;
   const url = new URL(req.url);
   const withLedger = url.searchParams.get("ledger") === "1";
   const snap = getQuotaSnapshot(auth.userId);
-  if (!withLedger) {
-    return NextResponse.json({
-      ...snap,
-      packs: TOPUP_PACKS,
-      plans: PLAN_LIMITS,
-    });
-  }
-  return NextResponse.json({
+  const body = {
     ...snap,
     packs: TOPUP_PACKS,
     plans: PLAN_LIMITS,
+    catalog: {
+      plans: listPlans(),
+      packs: listPacks(),
+    },
+  };
+  if (!withLedger) return NextResponse.json(body);
+  return NextResponse.json({
+    ...body,
     ledger: getLedger(auth.userId, Number(url.searchParams.get("limit") || 50)),
   });
 }
 
 /**
  * POST — 充值 / 升档（模拟支付成功）
- * { action: "topup", packId, requestId }
+ * { action: "topup"|"purchase", packId, requestId }
  * { action: "upgrade", tier, requestId }
  */
 export async function POST(req: Request) {
@@ -60,7 +63,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "requestId required" }, { status: 400 });
   }
 
-  if (body.action === "topup") {
+  if (body.action === "topup" || body.action === "purchase") {
     if (!body.packId) {
       return NextResponse.json({ error: "packId required" }, { status: 400 });
     }
@@ -83,7 +86,7 @@ export async function POST(req: Request) {
   }
 
   return NextResponse.json(
-    { error: "action must be topup | upgrade" },
+    { error: "action must be topup | purchase | upgrade" },
     { status: 400 },
   );
 }

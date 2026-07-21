@@ -1,11 +1,12 @@
 /**
- * W5 freeform 配额 + 软墙 + W7 付费墙/充值/账单（进程内账本桩）。
+ * W5 freeform 配额 + 软墙 + W7 付费墙 + W11 套餐/加量包产品化（进程内账本桩）。
  *
  * 合同：
  * 1. 成功推进才扣点；失败/拦截不扣
  * 2. 软墙：配额不足只挡「下一次推进」，绝不抹掉当前场
  * 3. 充值/升档后额度恢复可推进
  * 4. 每笔 charge / topup / upgrade 写账单流水（requestId 幂等）
+ * 5. W11：Plus/Pro 配置生效；图/声加量包可买；套餐目录可查
  *
  * Free 锚：30 对话 / 5 图 / 0 声
  */
@@ -20,23 +21,110 @@ export type QuotaLimits = {
   tts: number;
 };
 
-/** Claude 可验收数字锚；内测后按 P90 回调。 */
+/** Claude 可验收数字锚；内测后按 P90 回调。可由 env 覆盖。 */
 export const PLAN_LIMITS: Record<PlanTier, QuotaLimits> = {
   free: { dialogue: 30, image: 5, tts: 0 },
   plus: { dialogue: 300, image: 80, tts: 40 },
   pro: { dialogue: 1000, image: 250, tts: 150 },
 };
 
-/** 加量包（W7 MVP 固定 SKU） */
-export const TOPUP_PACKS: Record<
-  string,
-  { resource: ResourceKind; amount: number; label: string }
-> = {
-  dialogue_50: { resource: "dialogue", amount: 50, label: "对话+50" },
-  dialogue_200: { resource: "dialogue", amount: 200, label: "对话+200" },
-  image_20: { resource: "image", amount: 20, label: "图+20" },
-  image_80: { resource: "image", amount: 80, label: "图+80" },
-  tts_30: { resource: "tts", amount: 30, label: "声+30" },
+export type PlanCatalogEntry = {
+  tier: PlanTier;
+  label: string;
+  priceCny: number;
+  period: "month" | "lifetime";
+  limits: QuotaLimits;
+  features: string[];
+};
+
+/** W11：套餐产品目录（价格 + 权益说明 + 生效额度） */
+export const PLAN_CATALOG: PlanCatalogEntry[] = [
+  {
+    tier: "free",
+    label: "Free",
+    priceCny: 0,
+    period: "lifetime",
+    limits: PLAN_LIMITS.free,
+    features: ["30 对话", "5 出图", "无 TTS", "软墙保留当前场"],
+  },
+  {
+    tier: "plus",
+    label: "Plus",
+    priceCny: 28,
+    period: "month",
+    limits: PLAN_LIMITS.plus,
+    features: ["300 对话", "80 出图", "40 TTS", "优先队列"],
+  },
+  {
+    tier: "pro",
+    label: "Pro",
+    priceCny: 98,
+    period: "month",
+    limits: PLAN_LIMITS.pro,
+    features: ["1000 对话", "250 出图", "150 TTS", "SLA 优先"],
+  },
+];
+
+export type TopupPack = {
+  id: string;
+  resource: ResourceKind;
+  amount: number;
+  label: string;
+  priceCny: number;
+  /** free 也允许买加量包；升级走 upgrade */
+  availableOn: PlanTier[];
+};
+
+/** W11：加量包（图/声/对话可买，带价） */
+export const TOPUP_PACKS: Record<string, TopupPack> = {
+  dialogue_50: {
+    id: "dialogue_50",
+    resource: "dialogue",
+    amount: 50,
+    label: "对话+50",
+    priceCny: 6,
+    availableOn: ["free", "plus", "pro"],
+  },
+  dialogue_200: {
+    id: "dialogue_200",
+    resource: "dialogue",
+    amount: 200,
+    label: "对话+200",
+    priceCny: 18,
+    availableOn: ["free", "plus", "pro"],
+  },
+  image_20: {
+    id: "image_20",
+    resource: "image",
+    amount: 20,
+    label: "图+20",
+    priceCny: 8,
+    availableOn: ["free", "plus", "pro"],
+  },
+  image_80: {
+    id: "image_80",
+    resource: "image",
+    amount: 80,
+    label: "图+80",
+    priceCny: 25,
+    availableOn: ["free", "plus", "pro"],
+  },
+  tts_30: {
+    id: "tts_30",
+    resource: "tts",
+    amount: 30,
+    label: "声+30",
+    priceCny: 10,
+    availableOn: ["free", "plus", "pro"],
+  },
+  tts_100: {
+    id: "tts_100",
+    resource: "tts",
+    amount: 100,
+    label: "声+100",
+    priceCny: 28,
+    availableOn: ["plus", "pro"],
+  },
 };
 
 export type SoftWallError = {
@@ -71,6 +159,7 @@ export type LedgerEntry = {
   note?: string;
   balanceAfter?: QuotaLimits;
   tierAfter?: PlanTier;
+  priceCny?: number;
 };
 
 type Bucket = {
@@ -125,15 +214,32 @@ export function remainingOf(b: Bucket): QuotaLimits {
   };
 }
 
+export function listPlans(): PlanCatalogEntry[] {
+  // 保证 limits 与 PLAN_LIMITS 同源（配置生效）
+  return PLAN_CATALOG.map((p) => ({
+    ...p,
+    limits: { ...PLAN_LIMITS[p.tier] },
+  }));
+}
+
+export function listPacks(tier?: PlanTier): TopupPack[] {
+  return Object.values(TOPUP_PACKS).filter((p) =>
+    tier ? p.availableOn.includes(tier) : true,
+  );
+}
+
 export function getQuotaSnapshot(userId: string): {
   tier: PlanTier;
   used: QuotaLimits;
   limit: QuotaLimits;
   remaining: QuotaLimits;
   paywall: boolean;
+  plan: PlanCatalogEntry;
+  availablePacks: TopupPack[];
 } {
   const b = ensure(userId);
   const remaining = remainingOf(b);
+  const plan = listPlans().find((p) => p.tier === b.tier)!;
   return {
     tier: b.tier,
     used: { ...b.used },
@@ -141,6 +247,8 @@ export function getQuotaSnapshot(userId: string): {
     remaining,
     /** 对话点用尽 = 付费墙亮起（当前场仍可读） */
     paywall: remaining.dialogue <= 0,
+    plan,
+    availablePacks: listPacks(b.tier),
   };
 }
 
@@ -212,8 +320,9 @@ export function chargeSuccess(
 }
 
 /**
- * W7：加量包充值（模拟支付成功回调）。
+ * W7/W11：加量包充值（模拟支付成功回调）。
  * requestId 幂等 — 同一 requestId 不重复加额度。
+ * 图/声包可买；tts_100 仅 plus/pro。
  */
 export function topup(
   userId: string,
@@ -226,6 +335,14 @@ export function topup(
   if (!pack) return { ok: false, error: `unknown pack: ${packId}` };
   if (!requestId?.trim()) return { ok: false, error: "requestId required" };
 
+  const b = ensure(userId);
+  if (!pack.availableOn.includes(b.tier)) {
+    return {
+      ok: false,
+      error: `pack ${packId} not available on tier ${b.tier}`,
+    };
+  }
+
   const idemKey = `topup:${userId}:${requestId}`;
   if (idempotency.has(idemKey)) {
     const existingId = idempotency.get(idemKey)!;
@@ -237,7 +354,6 @@ export function topup(
     };
   }
 
-  const b = ensure(userId);
   b.limit[pack.resource] += pack.amount;
   const rem = remainingOf(b);
   const entry: LedgerEntry = {
@@ -251,6 +367,7 @@ export function topup(
     note: pack.label,
     balanceAfter: rem,
     tierAfter: b.tier,
+    priceCny: pack.priceCny,
   };
   ledgerOf(userId).push(entry);
   idempotency.set(idemKey, entry.id);
@@ -261,8 +378,8 @@ export function topup(
 }
 
 /**
- * W7：套餐升档。升到更高档时 limit 抬到套餐额度与当前 limit 的较大值
- * （已买加量包不丢）。
+ * W7/W11：套餐升档。升到更高档时 limit 抬到套餐额度与当前 limit 的较大值
+ * （已买加量包不丢）。Plus/Pro 配置从 PLAN_LIMITS 生效。
  */
 export function upgradeTier(
   userId: string,
@@ -287,6 +404,7 @@ export function upgradeTier(
 
   const b = ensure(userId);
   const plan = PLAN_LIMITS[tier];
+  const catalog = PLAN_CATALOG.find((p) => p.tier === tier);
   b.tier = tier;
   b.limit = {
     dialogue: Math.max(b.limit.dialogue, plan.dialogue),
@@ -304,6 +422,7 @@ export function upgradeTier(
     note: `upgrade to ${tier}`,
     balanceAfter: rem,
     tierAfter: tier,
+    priceCny: catalog?.priceCny,
   };
   ledgerOf(userId).push(entry);
   idempotency.set(idemKey, entry.id);
