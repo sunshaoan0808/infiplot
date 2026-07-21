@@ -205,13 +205,20 @@ export async function directScene(
   if (fusionUrl) {
     try {
       // 玩家本次选择（来自 session.history 最后一条的 exit）
+      // choice → label；freeform → action（Fusion 统一当 choice 文本处理）
       const lastExit = session.history.at(-1)?.exit;
-      const choiceParam =
-        lastExit && lastExit.kind === "choice"
-          ? (lastExit as { label?: string; choiceId?: string }).label ??
+      let choiceParam = "";
+      if (lastExit) {
+        if (lastExit.kind === "choice") {
+          choiceParam =
+            (lastExit as { label?: string; choiceId?: string }).label ??
             (lastExit as { choiceId?: string }).choiceId ??
-            ""
-          : "";
+            "";
+        } else if (lastExit.kind === "freeform") {
+          choiceParam =
+            (lastExit as { action?: string }).action?.trim() ?? "";
+        }
+      }
       // 把 Infiplot 会话 id 透传给 Fusion Core，实现多会话 WorldState 隔离
       const sid = session.id || "default";
       const url = `${fusionUrl.replace(/\/$/, "")}/api/scene-result?sessionId=${encodeURIComponent(sid)}${
