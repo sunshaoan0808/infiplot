@@ -9,6 +9,7 @@ import type {
 } from "@infiplot/types";
 import { mockImageDataUri } from "../mockImage";
 import { buildPainterPrompt } from "../prompts";
+import { recordSla, type ImageSlaResult } from "../imageSla";
 
 // ──────────────────────────────────────────────────────────────────────
 //  Painter — final image generation with multi-reference anchoring.
@@ -33,6 +34,10 @@ import { buildPainterPrompt } from "../prompts";
 //  Failure handling — two-tier degradation:
 //    A. referenceImages call           (preferred — full visual anchoring)
 //    B. pure text-to-image fallback    (last resort if Runware refs API errors)
+//
+//  W8: provider failover chain
+//    primary → backup → mock (double failure → no image, game continues)
+//    Each attempt recorded in SLA ledger.
 // ──────────────────────────────────────────────────────────────────────
 
 const MAX_REFERENCE_IMAGES = 4;
@@ -41,26 +46,14 @@ export type PainterInput = {
   integratedPrompt: string;
   styleGuide: string;
   onStageCharacters: Character[];
-  /**
-   * Prior scene's Runware UUID or URL. When set (= sceneKey hit a prior
-   * scene), it slots into referenceImages[0] for spatial continuity.
-   * Capacity-wise this displaces ONE character portrait — slot is shared
-   * with character refs, capped at 4 total per Runware spec.
-   */
   priorSceneImage?: string;
-  /**
-   * User-uploaded style reference (data URL base64). When set, it takes the
-   * highest-priority slot in referenceImages so the painting STYLE (brush /
-   * color / mood) of the user's image is anchored across every scene this
-   * session paints — even before any priorScene exists.
-   */
   styleReferenceImage?: string;
-  /**
-   * Session-locked output aspect. Drives both the Painter prompt's framing
-   * rules and the generated image's pixel dimensions. Default "landscape".
-   */
   orientation?: Orientation;
 };
+
+export type PainterResult =
+  | { kind: "real"; imageUrl: string; imageUuid: string }
+  | { kind: "mock"; imageUrl: string };
 
 // Pick the references we send to Runware as `referenceImages`. Priority:
 //   slot 0: priorSceneImage (if any — sceneKey continuity)
@@ -77,28 +70,14 @@ export function collectReferenceImages(
   const refs: string[] = [];
   const seen = new Set<string>();
 
-  // Slot 0 — user-uploaded style reference image, if any. Goes first because
-  // it anchors the whole-session painting STYLE (brush / color / mood) that
-  // the user explicitly chose. priorScene continuity comes second; character
-  // archetypes are partially covered by the prompt text anyway.
   if (styleReferenceImage) {
     refs.push(styleReferenceImage);
   }
 
-  // Slot N — prior scene image for spatial continuity. Backdrop drift is the
-  // next-most jarring discontinuity across same-sceneKey scenes; character
-  // drift is partially masked by character archetype text in the prompt.
   if (priorSceneImage) {
     refs.push(priorSceneImage);
   }
 
-  // Slot 1+ — character portraits, speaker-first.
-  //
-  // Prefer URL over UUID: Runware's `imageInference` returns a UUID, but that
-  // UUID isn't always recognized by the `referenceImages` pipeline (the error
-  // surfaces as `failedToTransferImage`). The URL is Runware's own CDN link —
-  // they can always fetch it from their own infra. UUID is kept as a backstop
-  // for any edge case where URL is missing (e.g., legacy session state).
   const speakerName = entryBeat?.speaker;
   if (speakerName) {
     const speaker = characters.find((c) => c.name === speakerName);
@@ -141,15 +120,6 @@ async function tryGenerate(
   }
 }
 
-// Hedged Tier-A: fire leg 1; if it hasn't settled after hedgeMs, race an
-// identical leg 2 and take whichever finishes first. This rescues straggler
-// paints (a single task stuck on a slow worker) without waiting out the
-// provider's own gateway limit (Runware kills tasks at ~55s with a 504).
-//
-// Deliberately NOT retry-on-error: a leg that fails fast (429/503 queue
-// saturation, 4xx) falls through to Tier B immediately — hedging into a
-// saturated queue only adds load. Each leg runs with retries=0 so the hedge
-// itself is the only retry layer (no retry×retry multiplication).
 async function tryGenerateHedged(
   config: ProviderConfig,
   prompt: string,
@@ -197,7 +167,6 @@ async function tryGenerateHedged(
 
   let result = await Promise.race([leg1, leg2]);
   if ("err" in result) {
-    // First settler failed — give the survivor its full chance.
     console.warn(
       `[painter] hedge leg${result.leg} failed: ${errMsg(result.err)}`,
     );
@@ -223,10 +192,87 @@ async function tryGenerateHedged(
   return null;
 }
 
-export type PainterResult =
-  | { kind: "real"; imageUrl: string; imageUuid: string }
-  | { kind: "mock"; imageUrl: string };
+/**
+ * Try a single provider with the full Tier A → Tier B degradation.
+ * Returns null if both tiers fail.
+ */
+async function tryProvider(
+  providerLabel: string,
+  providerConfig: ProviderConfig,
+  prompt: string,
+  refs: string[],
+  input: PainterInput,
+  engineConfig: EngineConfig,
+): Promise<PainterResult | null> {
+  const t0 = Date.now();
+  let error: string | undefined;
 
+  try {
+    // Tier A — with referenceImages
+    if (refs.length > 0) {
+      const tierAOptions: GenerateImageOptions = {
+        referenceImages: refs,
+        orientation: input.orientation,
+        timeoutMs: engineConfig.imageTimeoutMs,
+      };
+      const label = `[${providerLabel}] referenceImages (${refs.length})`;
+      const r =
+        engineConfig.imageHedgeMs && engineConfig.imageHedgeMs > 0
+          ? await tryGenerateHedged(
+              providerConfig,
+              prompt,
+              tierAOptions,
+              label,
+              engineConfig.imageHedgeMs,
+            )
+          : await tryGenerate(providerConfig, prompt, tierAOptions, label);
+      if (r) {
+        const sla: ImageSlaResult = {
+          provider: providerLabel === "primary" ? "primary" : "backup",
+          latencyMs: Date.now() - t0,
+          success: true,
+          model: providerConfig.model,
+        };
+        recordSla(sla);
+        return { kind: "real", imageUrl: r.imageUrl, imageUuid: r.imageUuid };
+      }
+    }
+
+    // Tier B — pure text-to-image
+    const r = await generateImage(providerConfig, prompt, {
+      orientation: input.orientation,
+      timeoutMs: engineConfig.imageTimeoutMs,
+    });
+    const sla: ImageSlaResult = {
+      provider: providerLabel === "primary" ? "primary" : "backup",
+      latencyMs: Date.now() - t0,
+      success: true,
+      model: providerConfig.model,
+    };
+    recordSla(sla);
+    return { kind: "real", imageUrl: r.imageUrl, imageUuid: r.imageUuid };
+  } catch (err) {
+    error = errMsg(err);
+    console.warn(`[painter] ${providerLabel} provider failed: ${error}`);
+    const sla: ImageSlaResult = {
+      provider: providerLabel === "primary" ? "primary" : "backup",
+      latencyMs: Date.now() - t0,
+      success: false,
+      model: providerConfig.model,
+      error,
+    };
+    recordSla(sla);
+    return null;
+  }
+}
+
+/**
+ * W8: runPainter with provider failover chain.
+ *
+ * Order: primary → backup → mock (degraded no-image).
+ * Each attempt recorded in SLA ledger.
+ * Guaranteed to return: never throws, always falls back to mock.
+ */
 export async function runPainter(
   config: EngineConfig,
   input: PainterInput,
@@ -250,36 +296,41 @@ export async function runPainter(
     input.styleReferenceImage,
   );
 
-  // Tier A — with referenceImages (priorSceneImage + character portraits).
-  // FLUX.2 [klein] 9B KV's KV cache accelerates this multi-reference path
-  // ~2.5× compared to the non-KV variant. When IMAGE_HEDGE_MS is configured,
-  // the scene paint is hedged (see tryGenerateHedged); portraits are not.
-  if (refs.length > 0) {
-    const tierAOptions: GenerateImageOptions = {
-      referenceImages: refs,
-      orientation: input.orientation,
-      timeoutMs: config.imageTimeoutMs,
-    };
-    const label = `referenceImages (${refs.length})`;
-    const r =
-      config.imageHedgeMs && config.imageHedgeMs > 0
-        ? await tryGenerateHedged(
-            config.image,
-            prompt,
-            tierAOptions,
-            label,
-            config.imageHedgeMs,
-          )
-        : await tryGenerate(config.image, prompt, tierAOptions, label);
-    if (r) return { kind: "real", imageUrl: r.imageUrl, imageUuid: r.imageUuid };
+  // 1) Primary provider
+  const primaryResult = await tryProvider(
+    "primary",
+    config.image,
+    prompt,
+    refs,
+    input,
+    config,
+  );
+  if (primaryResult) return primaryResult;
+
+  // 2) Backup provider (if configured)
+  if (config.imageBackup) {
+    const backupResult = await tryProvider(
+      "backup",
+      config.imageBackup,
+      prompt,
+      refs,
+      input,
+      config,
+    );
+    if (backupResult) return backupResult;
   }
 
-  // Tier B — pure text-to-image. Last resort, used when Tier A failed OR
-  // there are no references to send (first scene with no characters yet).
-  // Errors here propagate to the caller.
-  const r = await generateImage(config.image, prompt, {
-    orientation: input.orientation,
-    timeoutMs: config.imageTimeoutMs,
+  // 3) Degrade to mock — both providers failed
+  const t0 = Date.now();
+  const mockUrl = await mockImageDataUri(input.orientation);
+  recordSla({
+    provider: "mock",
+    latencyMs: Date.now() - t0,
+    success: true,
+    error: "primary+backup failed, degraded to mock",
   });
-  return { kind: "real", imageUrl: r.imageUrl, imageUuid: r.imageUuid };
+  console.warn(
+    `[painter] both providers failed, degrading to mock (${input.orientation})`,
+  );
+  return { kind: "mock", imageUrl: mockUrl };
 }

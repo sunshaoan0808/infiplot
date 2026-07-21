@@ -496,14 +496,16 @@ export type TtsProviderResponse = {
 export type EngineConfig = {
   text: ProviderConfig;
   image: ProviderConfig;
+  /** W8：备用出图 provider（主挂自动切） */
+  imageBackup?: ProviderConfig;
   vision: ProviderConfig;
   /** Optional — when missing the game runs silently (no TTS). */
   tts?: TtsConfig;
   /** When true the renderer returns a placeholder PNG instead of calling the image API. */
   mockImage?: boolean;
-  /**
-   * Per-attempt hard timeout (ms) for image-generation requests. Unset → no
-   * client-side timeout (only the provider's own gateway limits apply, e.g.
+  imageTimeoutMs?: number;
+  imageHedgeMs?: number;
+};
    * Runware kills tasks at ~55s with a 504).
    */
   imageTimeoutMs?: number;
