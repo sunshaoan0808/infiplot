@@ -5,10 +5,14 @@ import { loadEngineConfig, buildByoEngineConfig } from "@/lib/config";
 import { requireUser } from "@/lib/supabase/guard";
 import {
   checkAdvance,
-  checkFreeformContent,
   chargeSuccess,
   getQuotaSnapshot,
 } from "@/lib/engine/quota";
+import {
+  checkComplianceGate,
+  scanOutput,
+  getAgeGate,
+} from "@/lib/engine/compliance";
 
 export const runtime = "nodejs";
 
@@ -31,11 +35,11 @@ export async function POST(req: Request) {
     );
   }
 
-  // W5：违规输入硬拦截（当前场保留）
-  const blocked = checkFreeformContent(body.freeformText);
-  if (blocked) {
+  // W6：年龄门 + 输入双向扫描
+  const compliance = checkComplianceGate(userId, body.freeformText);
+  if (compliance) {
     return NextResponse.json(
-      { ...blocked, quota: getQuotaSnapshot(userId) },
+      { ...compliance, ageGate: getAgeGate(userId), quota: getQuotaSnapshot(userId) },
       { status: 403 },
     );
   }
@@ -53,11 +57,21 @@ export async function POST(req: Request) {
     const official = loadEngineConfig();
     const config = body.byo ? buildByoEngineConfig(body.byo, official) : official;
     const result = await classifyFreeform(config, body);
-    // 成功才扣
+
+    // W6 输出扫描（freeformAction 回写）
+    const outBlock = scanOutput(userId, result.freeformAction ?? "");
+    if (outBlock) {
+      return NextResponse.json(
+        { ...outBlock, ageGate: getAgeGate(userId), quota: getQuotaSnapshot(userId) },
+        { status: 403 },
+      );
+    }
+
     const remaining = chargeSuccess(userId, "dialogue");
     return NextResponse.json({
       ...result,
       quota: { ...getQuotaSnapshot(userId), remaining },
+      ageGate: getAgeGate(userId),
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";

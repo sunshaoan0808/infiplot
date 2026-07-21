@@ -8,6 +8,11 @@ import {
   chargeSuccess,
   getQuotaSnapshot,
 } from "@/lib/engine/quota";
+import {
+  checkComplianceGate,
+  scanOutput,
+  getAgeGate,
+} from "@/lib/engine/compliance";
 
 function stripKnownVoices(
   characters: Character[],
@@ -40,6 +45,22 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "session is required" }, { status: 400 });
   }
 
+  // W6：推进选择文本合规（freeform exit / choice label）
+  const lastExit = body.session.history?.at(-1)?.exit;
+  const advanceText =
+    lastExit && "label" in lastExit
+      ? String((lastExit as { label?: string }).label ?? "")
+      : lastExit && "action" in lastExit
+        ? String((lastExit as { action?: string }).action ?? "")
+        : body.session.worldSetting ?? "";
+  const compliance = checkComplianceGate(userId, advanceText);
+  if (compliance) {
+    return NextResponse.json(
+      { ...compliance, ageGate: getAgeGate(userId), quota: getQuotaSnapshot(userId) },
+      { status: 403 },
+    );
+  }
+
   // W5 软墙：配额不足挡推进，当前场由客户端保留
   const wall = checkAdvance(userId, "dialogue");
   if (wall) {
@@ -57,6 +78,16 @@ export async function POST(req: Request) {
 
     if (!acceptsSSE) {
       const result = await requestScene(config, body);
+      const outText = (result.scene?.beats ?? [])
+        .map((b) => [b.narration, b.line].filter(Boolean).join(" "))
+        .join("\n");
+      const outBlock = scanOutput(userId, outText);
+      if (outBlock) {
+        return NextResponse.json(
+          { ...outBlock, ageGate: getAgeGate(userId), quota: getQuotaSnapshot(userId) },
+          { status: 403 },
+        );
+      }
       chargeSuccess(userId, "dialogue");
       const knownNames = new Set(
         (body.session.characters ?? []).map((c) => c.name),
@@ -65,6 +96,7 @@ export async function POST(req: Request) {
         ...result,
         characters: stripKnownVoices(result.characters, knownNames),
         quota: getQuotaSnapshot(userId),
+        ageGate: getAgeGate(userId),
       });
     }
 
@@ -79,6 +111,19 @@ export async function POST(req: Request) {
           const result = await requestScene(config, body, (event) => {
             controller.enqueue(encoder.encode(formatSSE(event)));
           });
+          const outText = (result.scene?.beats ?? [])
+            .map((b) => [b.narration, b.line].filter(Boolean).join(" "))
+            .join("\n");
+          const outBlock = scanOutput(userId, outText);
+          if (outBlock) {
+            controller.enqueue(
+              encoder.encode(
+                formatSSE({ type: "error", message: outBlock.message, ...outBlock }),
+              ),
+            );
+            controller.close();
+            return;
+          }
           chargeSuccess(userId, "dialogue");
           const { imageWait, ...responseBody } = result as typeof result & {
             imageWait?: Promise<void>;
@@ -91,6 +136,7 @@ export async function POST(req: Request) {
                   ...responseBody,
                   characters: stripKnownVoices(result.characters, knownNames),
                   quota: getQuotaSnapshot(userId),
+                  ageGate: getAgeGate(userId),
                 },
               }),
             ),

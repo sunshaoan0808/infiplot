@@ -5,10 +5,14 @@ import { loadEngineConfig } from "@/lib/config";
 import { requireUser } from "@/lib/supabase/guard";
 import {
   checkAdvance,
-  checkFreeformContent,
   chargeSuccess,
   getQuotaSnapshot,
 } from "@/lib/engine/quota";
+import {
+  checkComplianceGate,
+  scanOutput,
+  getAgeGate,
+} from "@/lib/engine/compliance";
 
 export const runtime = "nodejs";
 
@@ -31,10 +35,10 @@ export async function POST(req: Request) {
     );
   }
 
-  const blocked = checkFreeformContent(body.freeformAction);
-  if (blocked) {
+  const compliance = checkComplianceGate(userId, body.freeformAction);
+  if (compliance) {
     return NextResponse.json(
-      { ...blocked, quota: getQuotaSnapshot(userId) },
+      { ...compliance, ageGate: getAgeGate(userId), quota: getQuotaSnapshot(userId) },
       { status: 403 },
     );
   }
@@ -51,11 +55,28 @@ export async function POST(req: Request) {
     const base = loadEngineConfig();
     const config = body.clientTts === true ? { ...base, tts: undefined } : base;
     const result = await requestInsertBeat(config, body);
+
+    const outText = [
+      result.partial?.narration,
+      result.partial?.line,
+      ...(result.extraBeats ?? []).flatMap((b) => [b.narration, b.line]),
+    ]
+      .filter(Boolean)
+      .join("\n");
+    const outBlock = scanOutput(userId, outText);
+    if (outBlock) {
+      return NextResponse.json(
+        { ...outBlock, ageGate: getAgeGate(userId), quota: getQuotaSnapshot(userId) },
+        { status: 403 },
+      );
+    }
+
     const remaining = chargeSuccess(userId, "dialogue");
     return NextResponse.json({
       ...result,
       characters: result.characters.map((c) => ({ ...c, voice: undefined })),
       quota: { ...getQuotaSnapshot(userId), remaining },
+      ageGate: getAgeGate(userId),
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
