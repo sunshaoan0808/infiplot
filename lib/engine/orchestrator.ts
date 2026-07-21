@@ -91,11 +91,8 @@ export async function startSession(
     console.log(`[start] auto-selected style: ${session.styleGuide.slice(0, 60)}…`);
   }
 
-  const { scene, sceneImageUrl, characters, storyState } = await directScene(
-    config,
-    session,
-    emit,
-  );
+  const { scene, sceneImageUrl, characters, storyState, imageStatus } =
+    await directScene(config, session, emit);
 
   tlog("[start] TOTAL", tTotal);
 
@@ -105,6 +102,7 @@ export async function startSession(
     imageUrl: sceneImageUrl,
     characters,
     storyState,
+    imageStatus,
   };
 }
 
@@ -119,11 +117,8 @@ export async function requestScene(
 ): Promise<SceneResponse> {
   const tTotal = Date.now();
 
-  const { scene, sceneImageUrl, characters, storyState } = await directScene(
-    config,
-    req.session,
-    emit,
-  );
+  const { scene, sceneImageUrl, characters, storyState, imageStatus } =
+    await directScene(config, req.session, emit);
 
   tlog("[scene] TOTAL", tTotal);
 
@@ -132,6 +127,7 @@ export async function requestScene(
     imageUrl: sceneImageUrl,
     characters,
     storyState,
+    imageStatus,
   };
 }
 

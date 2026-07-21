@@ -164,11 +164,15 @@ function applyStoryStatePatch(
   };
 }
 
+export type SceneImageStatus = "pending" | "ready" | "failed" | "empty";
+
 export type SceneResult = {
   scene: Scene;
   sceneImageUrl: string;
   characters: Character[];
   storyState: StoryState;
+  /** Fusion 桥接文先回：Painter 未完成时为 pending，成功 ready，失败 failed */
+  imageStatus?: SceneImageStatus;
 };
 
 // Absolute-worst-case plan when the stream produced no usable <plan> at all
@@ -276,50 +280,62 @@ export async function directScene(
         }
         const integratedPrompt =
           (result.scene.scenePrompt || "").trim() || "cinematic story scene";
-        let sceneImageUrl = result.sceneImageUrl || "";
-        let paintedUuid: string | undefined;
-        try {
-          const painted = await runPainter(
-            config,
-            {
-              integratedPrompt,
-              styleGuide: session.styleGuide || "cinematic realist",
-              onStageCharacters: paintChars,
-              priorSceneImage: session.history
-                .at(-1)
-                ?.scene?.imageUrl,
-              styleReferenceImage: session.styleReferenceImage,
-              orientation,
-            },
-            entryBeat,
-          );
-          sceneImageUrl = painted.imageUrl;
-          if (painted.kind === "real") paintedUuid = painted.imageUuid;
-          emit?.({
-            type: "background",
-            imageUrl: painted.imageUrl,
-            sceneKey: result.scene.sceneKey,
-          });
-        } catch (paintErr) {
-          const msg =
-            paintErr instanceof Error ? paintErr.message : String(paintErr);
-          console.warn(
-            `[directScene] Fusion bridge Painter failed (text continues): ${msg}`,
-          );
+        // 文先回：不 await Painter。先返回 pending，后台 backfill + emit background。
+        const existingImage = result.sceneImageUrl || result.scene.imageUrl || "";
+        let imageStatus: SceneImageStatus = existingImage ? "ready" : "pending";
+        let sceneImageUrl = existingImage;
+        const sceneBase: Scene & {
+          imageStatus: SceneImageStatus;
+        } = {
+          ...result.scene,
+          imageUrl: sceneImageUrl || result.scene.imageUrl,
+          imageUuid: result.scene.imageUuid,
+          imageStatus,
+          orientation: result.scene.orientation ?? orientation,
+        };
+
+        // fire-and-forget：Painter 失败只 warn，绝不拖住文本返回
+        if (!existingImage) {
+          void (async () => {
+            try {
+              const painted = await runPainter(
+                config,
+                {
+                  integratedPrompt,
+                  styleGuide: session.styleGuide || "cinematic realist",
+                  onStageCharacters: paintChars,
+                  priorSceneImage: session.history.at(-1)?.scene?.imageUrl,
+                  styleReferenceImage: session.styleReferenceImage,
+                  orientation,
+                },
+                entryBeat,
+              );
+              sceneBase.imageUrl = painted.imageUrl;
+              if (painted.kind === "real") sceneBase.imageUuid = painted.imageUuid;
+              sceneBase.imageStatus = "ready";
+              emit?.({
+                type: "background",
+                imageUrl: painted.imageUrl,
+                sceneKey: result.scene.sceneKey,
+              });
+            } catch (paintErr) {
+              const msg =
+                paintErr instanceof Error ? paintErr.message : String(paintErr);
+              console.warn(
+                `[directScene] Fusion bridge Painter failed (text continues): ${msg}`,
+              );
+              sceneBase.imageStatus = "failed";
+            }
+          })();
         }
 
         const provisionedChars = await provisionedCharsPromise;
-        const scene = {
-          ...result.scene,
-          imageUrl: sceneImageUrl || result.scene.imageUrl,
-          imageUuid: paintedUuid ?? result.scene.imageUuid,
-          orientation: result.scene.orientation ?? orientation,
-        };
         return {
           ...result,
-          scene,
+          scene: sceneBase,
           sceneImageUrl,
           characters: provisionedChars,
+          imageStatus,
         };
       }
       console.warn(`[directScene] Fusion Core 返回 ${res.status}，降级到原 pipeline`);
