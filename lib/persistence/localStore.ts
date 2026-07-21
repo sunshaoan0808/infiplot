@@ -11,7 +11,16 @@ import type { Session } from "@infiplot/types";
 import { coerceOrientation } from "@infiplot/types";
 import { idbGet, idbGetAll, idbPut, idbDelete, idbCount, STORIES_STORE } from "./idb";
 import { slimSession } from "./sessionSlim";
-import { STORY_SCHEMA_VERSION, coerceEpoch, type StoryRecord, type StoryMeta, type StorySyncEnvelope } from "./types";
+import {
+  STORY_SCHEMA_VERSION,
+  coerceEpoch,
+  validateSession,
+  sessionValidationErrorLabel,
+  type StoryRecord,
+  type StoryMeta,
+  type StorySyncEnvelope,
+  type SessionValidationError,
+} from "./types";
 
 /** Max number of non-tombstoned stories retained locally. IndexedDB has ample
  *  quota, so this is generous vs the old localStorage cap of 20; it aligns with
@@ -169,6 +178,46 @@ export async function loadStorySession(id: string): Promise<Session | null> {
   const rec = await idbGet<StoryRecord>(STORIES_STORE, id);
   if (!rec || rec.deletedAt || !rec.session) return null;
   return { ...rec.session, createdAt: coerceEpoch(rec.session.createdAt, rec.createdAt) };
+}
+
+export type LoadSessionResult =
+  | { ok: true; session: Session }
+  | { ok: false; error: string; validationError: SessionValidationError };
+
+/** Load and validate a session by id. Returns a structured result with the
+ *  loaded session or a human-readable error for corrupt/missing saves. This is
+ *  the recommended entry point for resume-by-sessionId — it surfaces recovery
+ *  info instead of silently returning null. */
+export async function loadAndValidateSession(id: string): Promise<LoadSessionResult> {
+  const rec = await idbGet<StoryRecord>(STORIES_STORE, id);
+  if (!rec) {
+    const err: SessionValidationError = { kind: "missing_id" };
+    return { ok: false, error: "存档不存在或已被删除", validationError: err };
+  }
+  if (rec.deletedAt) {
+    const err: SessionValidationError = { kind: "missing_id" };
+    return { ok: false, error: "存档已被删除", validationError: err };
+  }
+  if (!rec.session) {
+    const err: SessionValidationError = { kind: "missing_history" };
+    return { ok: false, error: "存档数据损坏：缺少会话内容", validationError: err };
+  }
+
+  const session: Session = {
+    ...rec.session,
+    createdAt: coerceEpoch(rec.session.createdAt, rec.createdAt),
+  };
+
+  const validationErr = validateSession(session);
+  if (validationErr && validationErr.kind !== "story_state_missing") {
+    return {
+      ok: false,
+      error: sessionValidationErrorLabel(validationErr),
+      validationError: validationErr,
+    };
+  }
+
+  return { ok: true, session };
 }
 
 /** Soft-delete: set the tombstone + mark pending so the deletion can propagate
