@@ -1,6 +1,4 @@
 import type { CharacterVoice, TtsConfig } from "@infiplot/types";
-import { stepfunSynthesize } from "./stepfun";
-import { xiaomiSynthesize } from "./xiaomi";
 
 // ──────────────────────────────────────────────────────────────────────
 //  ProviderRouter — ONE synthesize entry in front of the per-provider synth
@@ -20,6 +18,10 @@ import { xiaomiSynthesize } from "./xiaomi";
 //  to calling the provider synth directly. Dispatch is still by the voice's
 //  own provider tag (a session can outlive a provider flip), matching the
 //  historical `synthesize` in index.ts.
+//
+//  Provider modules are loaded lazily inside routeSynthesize so the offline
+//  breaker test (scripts/tts-router-breaker-test.mts) can import synthWithPolicy
+//  under plain Node ESM without pulling stepfun's JSON import attributes.
 // ──────────────────────────────────────────────────────────────────────
 
 export type SynthResult = { audioBase64: string; mimeType: string };
@@ -53,48 +55,40 @@ export function __resetMeter(): void {
 }
 
 // ── Circuit breaker ───────────────────────────────────────────────────
-const FAILURE_THRESHOLD = 3; // consecutive failures before the breaker opens
-const COOLDOWN_MS = 30000; // how long the breaker stays open before a probe
+// Per-provider failure window. FAILURE_THRESHOLD consecutive failures OPEN
+// the breaker for COOLDOWN_MS; after cooldown the next call is HALF-OPEN
+// (one probe). Success closes; failure re-opens.
+const FAILURE_THRESHOLD = 3;
+const COOLDOWN_MS = 30_000;
 
-type BreakerState = { failures: number; openedAt: number | null };
+type Breaker = {
+  failures: number;
+  openedAt: number | null;
+};
 
-// Keyed by provider tag so MiMo tripping never silences a healthy StepFun
-// (or vice versa) inside the same process.
-const breakers = new Map<string, BreakerState>();
+const breakers = new Map<string, Breaker>();
 
-function getBreaker(key: string): BreakerState {
-  let b = breakers.get(key);
+function getBreaker(provider: string): Breaker {
+  let b = breakers.get(provider);
   if (!b) {
     b = { failures: 0, openedAt: null };
-    breakers.set(key, b);
+    breakers.set(provider, b);
   }
   return b;
 }
 
-/** Raised when the breaker is OPEN. synthesizeBeat swallows it exactly like a
- *  synth error → the caller plays silent, so a tripped provider degrades
- *  gracefully instead of hard-crashing. */
-export class BreakerOpenError extends Error {
-  constructor(provider: string) {
-    super(`TTS provider "${provider}" circuit breaker open — degraded to silent`);
-    this.name = "BreakerOpenError";
-  }
+function canAttempt(b: Breaker): boolean {
+  if (b.openedAt === null) return true;
+  return Date.now() - b.openedAt >= COOLDOWN_MS;
 }
 
-function canAttempt(b: BreakerState): boolean {
-  if (b.openedAt === null) return true; // closed
-  if (Date.now() - b.openedAt >= COOLDOWN_MS) return true; // half-open probe
-  return false; // open
-}
-
-function recordSuccess(b: BreakerState): void {
+function recordSuccess(b: Breaker): void {
   b.failures = 0;
   b.openedAt = null;
 }
 
-function recordFailure(b: BreakerState): void {
+function recordFailure(b: Breaker): void {
   b.failures += 1;
-  // Re-stamp openedAt on every failure past the threshold so a failing
   // half-open probe restarts the cooldown instead of immediately re-probing.
   if (b.failures >= FAILURE_THRESHOLD) b.openedAt = Date.now();
 }
@@ -112,6 +106,15 @@ export function getBreakerState(
   const b = breakers.get(provider);
   if (!b) return { open: false, failures: 0 };
   return { open: b.openedAt !== null && !canAttempt(b), failures: b.failures };
+}
+
+export class BreakerOpenError extends Error {
+  provider: string;
+  constructor(provider: string) {
+    super(`TTS breaker open for provider=${provider}`);
+    this.name = "BreakerOpenError";
+    this.provider = provider;
+  }
 }
 
 // ── Core policy wrapper ───────────────────────────────────────────────
@@ -144,7 +147,7 @@ export async function synthWithPolicy(
  *  the breaker + meter. Throws on failure / open breaker (synthesizeBeat
  *  swallows it → silent), so this stays a drop-in for the historical
  *  provider-dispatch `synthesize`. */
-export function routeSynthesize(
+export async function routeSynthesize(
   cfg: TtsConfig,
   voice: CharacterVoice,
   text: string,
@@ -154,10 +157,14 @@ export function routeSynthesize(
   return synthWithPolicy(
     voice.provider,
     text.length,
-    (sig) =>
-      voice.provider === "stepfun"
-        ? stepfunSynthesize(cfg, voice, text, delivery, sig)
-        : xiaomiSynthesize(cfg, voice, text, delivery, sig),
+    async (sig) => {
+      if (voice.provider === "stepfun") {
+        const { stepfunSynthesize } = await import("./stepfun.ts");
+        return stepfunSynthesize(cfg, voice, text, delivery, sig);
+      }
+      const { xiaomiSynthesize } = await import("./xiaomi.ts");
+      return xiaomiSynthesize(cfg, voice, text, delivery, sig);
+    },
     signal,
   );
 }
